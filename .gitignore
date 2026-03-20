@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 *.sqlite3
 venv/
+execution/cache/
+*.log
+.DS_Store

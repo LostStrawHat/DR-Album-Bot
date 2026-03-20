@@ -12,9 +12,12 @@ import re
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
 CACHE_DIR = os.path.join(WORKSPACE_ROOT, 'execution', 'cache')
+THUMB_DIR = os.path.join(WORKSPACE_ROOT, 'execution', 'cache', 'thumbnails')
 
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR, exist_ok=True)
+if not os.path.exists(THUMB_DIR):
+    os.makedirs(THUMB_DIR, exist_ok=True)
 
 # Mount the Discord Bot Token securely into the Dashboard memory to act as a stealth API proxy
 load_dotenv(os.path.join(WORKSPACE_ROOT, '.env'), override=True)
@@ -143,39 +146,94 @@ def get_fresh_discord_attachment(channel_id, composite_id):
 
 import mimetypes
 import io
+from PIL import Image
 
-@app.route("/media/<message_id>")
-def proxy_media(message_id):
-    """Bridge Discord API with aggressive local caching and streaming Range support."""
+def get_db_info(message_id):
+    conn = get_db()
+    # The frontend passes `{message_id}-{attachment_id}` since Discord allows multiple attachments per message.
+    # We stored the same composite ID in the `message_id` column during log_photo_to_db.
+    row = conn.execute("SELECT file_name, channel_id FROM photos WHERE message_id=?", (str(message_id),)).fetchone()
+    conn.close()
+    return row
+
+def ensure_local_cache(message_id, photo):
+    """Ensures the original high-res file is cached from Discord."""
     cache_path = os.path.join(CACHE_DIR, message_id)
-    
-    # helper to get file info and guess mimetype
-    def get_info():
-        conn = get_db()
-        row = conn.execute("SELECT file_name, channel_id FROM photos WHERE message_id=?", (message_id,)).fetchone()
-        conn.close()
-        return row
-
-    photo = get_info()
-    if not photo:
-        return "Media metadata destroyed", 404
-
-    # 1. Handle Cache Miss: Download from Discord first
     if not os.path.exists(cache_path):
+        print(f"[DEBUG] Cache miss for {message_id}, fetching fresh URL...")
         fresh_url = get_fresh_discord_attachment(photo["channel_id"], message_id)
         if not fresh_url:
-            return "Failed to bridge native Discord API", 502
+            print(f"[DEBUG] Failed to get fresh URL for {message_id}")
+            return None
         try:
             r = requests.get(fresh_url, stream=True)
             if r.status_code == 200:
                 with open(cache_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
+                print(f"[DEBUG] Successfully cached original to {cache_path}")
+                return cache_path
             else:
-                return f"Discord CDN blocked fetch: {r.status_code}", 502
+                print(f"[DEBUG] Discord CDN returned {r.status_code} for {fresh_url}")
+                return None
         except Exception as e:
-            print(f"Fetch Error: {e}")
-            return "Fetch failed", 500
+            print(f"[DEBUG] Fetch Error: {e}")
+            return None
+    return cache_path
+
+@app.route("/thumbnail/<message_id>")
+def proxy_thumbnail(message_id):
+    """Serves a lightweight, compressed thumbnail of the image for the gallery grid."""
+    photo = get_db_info(message_id)
+    if not photo:
+        return "Media metadata destroyed", 404
+
+    file_name = photo["file_name"].lower()
+    is_video = file_name.endswith(('.mp4', '.mov'))
+    
+    # If it's a video, fallback to original media proxy since we don't have FFMPEG/OpenCV for frames yet
+    if is_video:
+        return redirect(f"/media/{message_id}")
+
+    thumb_path = os.path.join(THUMB_DIR, f"{message_id}.jpg")
+    
+    # 1. Provide cached thumbnail immediately if it exists
+    if os.path.exists(thumb_path):
+        return send_file(thumb_path, mimetype='image/jpeg', max_age=31536000)
+
+    # 2. Guarantee the original asset is cached offline
+    original_cache_path = ensure_local_cache(message_id, photo)
+    if not original_cache_path:
+        return "Failed to bridge native Discord API", 502
+
+    # 3. Generate the thumbnail on the fly
+    try:
+        with Image.open(original_cache_path) as img:
+            # Convert to RGB if necessary (e.g. for PNGs with transparency)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            
+            # Heavy compression logic: Max 400x400
+            img.thumbnail((300, 300), Image.Resampling.LANCZOS)
+            img.save(thumb_path, "JPEG", quality=65, optimize=True)
+        
+        return send_file(thumb_path, mimetype='image/jpeg', max_age=31536000)
+    except Exception as e:
+        print(f"Thumbnail generation failed for {message_id}: {e}")
+        # Graceful fallback: serve original
+        return redirect(f"/media/{message_id}")
+
+
+@app.route("/media/<message_id>")
+def proxy_media(message_id):
+    """Bridge Discord API with aggressive local caching and streaming Range support."""
+    photo = get_db_info(message_id)
+    if not photo:
+        return "Media metadata destroyed", 404
+
+    cache_path = ensure_local_cache(message_id, photo)
+    if not cache_path:
+        return "Failed to bridge native Discord API", 502
 
     # 2. Stream from Local Cache with Range Support
     guessed_type, _ = mimetypes.guess_type(photo["file_name"])

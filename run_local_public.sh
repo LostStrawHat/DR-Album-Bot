@@ -11,10 +11,10 @@ if [ -d "venv" ]; then
 fi
 
 # 1. Start the Bot (Background)
-python3 execution/bot.py &
+venv/bin/python execution/bot.py &
 
 # 2. Start the Dashboard (Background)
-python3 execution/dashboard.py &
+venv/bin/python execution/dashboard.py &
 
 # 3. Wait for Dashboard to boot
 sleep 2

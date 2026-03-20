@@ -134,7 +134,7 @@ function renderGallery() {
             card.addEventListener('mouseleave', () => media.pause());
         } else {
             media = document.createElement('img');
-            media.src = p.proxy_url;
+            media.src = `/thumbnail/${p.id}`;
             media.loading = "lazy";
         }
         

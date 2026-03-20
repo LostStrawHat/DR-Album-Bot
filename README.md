@@ -1,20 +1,33 @@
-# Discord Memory Vault - Render Deployment Guide
+# Discord Memory Vault
 
-This repository is configured for easy deployment to **Render.com**.
+A passive Discord bot and dashboard for archiving hangout photos and videos locally.
 
-## Deployment Steps
+## Features
+- **Passive Archiving**: Automatically detects and saves high-resolution media.
+- **Meme Filtering**: Offline size-based heuristics (500KB limit) to ignore internet memes.
+- **Interactive Dashboard**: A glassmorphism web interface to browse and filter your memories.
+- **Slash Commands**: `/album` to get the link, `/set_photo_channel` to bind the listener.
 
-1. **Push to GitHub**: Push your code to a GitHub repository.
-2. **Create Web Service (Dashboard)**:
-   - Connect your repo to Render.
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `python execution/dashboard.py`
-   - **Environment Variables**: Add your `DISCORD_TOKEN`, `ADMIN_PASSWORD`, and `SECRET_KEY`.
-3. **Create Background Worker (Bot)**:
-   - Connect the same repo again.
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `python execution/bot.py`
-   - **Environment Variables**: Use the same environment variables as the web service.
+## Local Deployment
 
-## Persistence Note (Free Tier)
-Render's free tier uses an ephemeral disk. The `photos.sqlite3` database will reset on every deploy/restart. For permanent storage, consider connecting to a free hosted PostgreSQL database (like Neon or Supabase) and updating the storage logic.
+This vault is optimized for local hosting with secure public access via Cloudflare Tunnels.
+
+### Prerequisites
+- Python 3.10+
+- Discord Bot Token (with Message Content Intent)
+
+### Setup
+1. **Clone & Install**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Configure**:
+   Update your `.env` file with `DISCORD_TOKEN`, `ADMIN_PASSWORD`, and `SECRET_KEY`.
+3. **Run**:
+   ```bash
+   chmod +x run_local_public.sh
+   ./run_local_public.sh
+   ```
+
+### Access
+The script will launch a Cloudflare tunnel. Use `/set_album_url <url>` in Discord to save the link for the `/album` command.
