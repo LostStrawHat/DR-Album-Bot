@@ -10,6 +10,10 @@ from functools import wraps
 
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
+CACHE_DIR = os.path.join(WORKSPACE_ROOT, 'execution', 'cache')
+
+if not os.path.exists(CACHE_DIR):
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Mount the Discord Bot Token securely into the Dashboard memory to act as a stealth API proxy
 load_dotenv(os.path.join(WORKSPACE_ROOT, '.env'), override=True)
@@ -28,8 +32,7 @@ def get_db():
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('is_admin'):
-            return jsonify({"error": "Admin access required"}), 401
+        # Admin password bypassed by user request for easy sharing
         return f(*args, **kwargs)
     return decorated_function
 
@@ -142,7 +145,22 @@ import io
 
 @app.route("/media/<message_id>")
 def proxy_media(message_id):
-    """Perfectly invisible streaming bridge hiding the Discord backend from the browser."""
+    """Bridge Discord API with aggressive local caching for maximum performance."""
+    # 1. Check Local Cache First (Extreme Speed)
+    cache_path = os.path.join(CACHE_DIR, message_id)
+    if os.path.exists(cache_path):
+        conn = get_db()
+        photo = conn.execute("SELECT file_name FROM photos WHERE message_id=?", (message_id,)).fetchone()
+        conn.close()
+        guessed_type, _ = mimetypes.guess_type(photo["file_name"] if photo else "image.jpg")
+        return send_file(
+            cache_path,
+            mimetype=guessed_type or 'application/octet-stream',
+            last_modified=os.path.getmtime(cache_path),
+            max_age=31536000 # 1 year browser cache
+        )
+
+    # 2. Cache Miss: Fetch from Discord
     conn = get_db()
     photo = conn.execute("SELECT channel_id, file_name FROM photos WHERE message_id=?", (message_id,)).fetchone()
     conn.close()
@@ -154,17 +172,19 @@ def proxy_media(message_id):
     if not fresh_url:
         return "Failed to bridge native Discord API", 502
         
-    # We must fetch the bytes server-side because if we redirect the browser, 
-    # Discord's CDN sees the browser's "Referer" header and aggressively blocks it (403 Forbidden)
-    # due to strict cross-origin hotlink protections. Python requests send no Referer.
     try:
         r = requests.get(fresh_url, stream=True)
         if r.status_code == 200:
+            # 3. Save to Local Cache for future requests
+            with open(cache_path, 'wb') as f:
+                f.write(r.content)
+            
             guessed_type, _ = mimetypes.guess_type(photo["file_name"])
             return send_file(
                 io.BytesIO(r.content),
                 mimetype=guessed_type or 'application/octet-stream',
-                download_name=photo["file_name"]
+                download_name=photo["file_name"],
+                max_age=31536000
             )
         return f"Discord CDN blocked fetch: {r.status_code}", 502
     except Exception as e:
