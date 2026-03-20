@@ -10,11 +10,29 @@ if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
-# 1. Start the Bot (Background)
-venv/bin/python execution/bot.py &
+# 1. Optimize Database
+echo "📦 Optimizing database..."
+sqlite3 photos.sqlite3 "VACUUM; ANALYZE; PRAGMA journal_mode=WAL;"
 
-# 2. Start the Dashboard (Background)
-venv/bin/python execution/dashboard.py &
+# Function to run bot with auto-restart
+run_bot() {
+    until venv/bin/python execution/bot.py; do
+        echo "⚠️ Bot crashed! Restarting in 5s..."
+        sleep 5
+    done
+}
+
+# Function to run dashboard with auto-restart
+run_dashboard() {
+    until venv/bin/python execution/dashboard.py; do
+        echo "⚠️ Dashboard crashed! Restarting in 5s..."
+        sleep 5
+    done
+}
+
+# 2. Launch Background Processes
+run_bot &
+run_dashboard &
 
 # 4. Start the Cloudflare Tunnel and Auto-Update Link
 echo "🌐 Launching Cloudflare tunnel..."
