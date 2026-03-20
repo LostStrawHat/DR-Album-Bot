@@ -201,6 +201,12 @@ class PhotoBotClient(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        # Ensure the dashboard is running on startup
+        try:
+            tunnel_manager.start_dashboard()
+        except Exception as e:
+            print(f"Warning: Failed to auto-start dashboard: {e}")
+            
         # Register right-click Context Menu
         self.tree.add_command(app_commands.ContextMenu(
             name='Add to Vault',
