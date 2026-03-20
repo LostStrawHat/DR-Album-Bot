@@ -1,0 +1,550 @@
+:root {
+    --bg-dark: #0f172a;
+    --glass-bg: rgba(30, 41, 59, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --accent: #60a5fa;
+    --accent-glow: rgba(96, 165, 250, 0.4);
+    --text-primary: #f8fafc;
+    --text-muted: #94a3b8;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    font-family: 'Outfit', sans-serif;
+    min-height: 100vh;
+    padding: 2rem;
+    overflow-x: hidden;
+    position: relative;
+}
+
+.background-animation {
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200vw;
+    height: 200vh;
+    background: radial-gradient(circle at 50% 50%, var(--accent-glow) 0%, transparent 60%);
+    z-index: -1;
+    animation: drift 20s infinite alternate;
+}
+
+@keyframes drift {
+    100% { transform: translate(10%, 10%); }
+}
+
+.glass-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 2rem 3rem;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+}
+
+header h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, #fff, var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+}
+
+header p {
+    color: var(--text-muted);
+    font-weight: 300;
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+}
+
+.top-nav {
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding-bottom: 2rem;
+    margin-bottom: 2rem;
+    padding-top: 1rem;
+}
+
+/* Glassmorphism Floating Filter Bar */
+.floating-filter-bar {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 16px;
+    padding: 0.75rem 1.25rem;
+    
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    overflow: hidden; 
+}
+
+.filter-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    position: relative;
+    z-index: 10;
+}
+
+.vertical-divider {
+    width: 1px;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.2);
+    margin: 0 0.5rem;
+}
+
+/* Spotlight glow following the cursor */
+.filter-spotlight {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none;
+    z-index: 0;
+    
+    /* Inject --mouse-x and --mouse-y from JS */
+    background: radial-gradient(150px circle at var(--mouse-x, -500px) var(--mouse-y, -500px), rgba(255, 255, 255, 0.15), transparent 60%);
+}
+
+#author-filter, #type-filter, .icon-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.85rem;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.action-btn {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 0.4rem 0.6rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.65rem;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 500;
+    white-space: nowrap;
+    
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+}
+
+.action-btn svg {
+    margin-bottom: -1px;
+}
+
+#author-filter:hover, #type-filter:hover, .action-btn:hover, .icon-btn:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.action-btn:active {
+    transform: scale(0.95);
+}
+
+.download-btn {
+    background: rgba(147, 197, 253, 0.15);
+    border-color: rgba(147, 197, 253, 0.3);
+}
+
+.download-btn:hover:not(:disabled) {
+    background: rgba(147, 197, 253, 0.25);
+    border-color: #93c5fd;
+}
+
+.download-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Remove default appearance from selects to blend better */
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2.25rem !important;
+}
+
+.gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 2rem;
+}
+
+.media-card {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    aspect-ratio: 4/5;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--glass-border);
+    cursor: pointer;
+    transition: transform 0.3s ease, border-color 0.3s;
+}
+
+.media-card:hover {
+    transform: translateY(-5px);
+    border-color: var(--accent);
+}
+
+.media-card img, .media-card video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: opacity 0.3s;
+}
+
+.media-card.selected {
+    border: 2px solid var(--accent);
+    box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.media-card.selected img {
+    opacity: 0.7;
+}
+
+.check-indicator {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    width: 30px;
+    height: 30px;
+    background: rgba(0,0,0,0.5);
+    border: 2px solid white;
+    border-radius: 50%;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.2s;
+}
+
+.media-card:hover .check-indicator, .media-card.selected .check-indicator {
+    opacity: 1;
+}
+
+.media-card.selected .check-indicator {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.media-card.selected .check-indicator::after {
+    content: "✓";
+    color: var(--bg-dark);
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+.card-footer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 1.5rem 1rem 1rem;
+    background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+    pointer-events: none;
+}
+
+.card-footer p {
+    font-size: 0.85rem;
+    color: #cbd5e1;
+    margin-top: 5px;
+}
+
+input[type="date"] {
+    background: transparent;
+    color: white;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: 0.85rem;
+    outline: none;
+    cursor: pointer;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 0.5;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+input[type="date"]:hover::-webkit-calendar-picker-indicator {
+    opacity: 1;
+}
+
+.date-range-container {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    padding: 0.4rem 1rem;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.date-range-container:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.date-range-container span {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+
+.end-date-group {
+    display: none; /* starts hidden for single-day mode */
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.end-date-group.active {
+    display: flex;
+}
+
+/* Lightbox remains structurally independent */
+
+/* Lightbox Styles */
+.lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.9);
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.lightbox.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.lightbox-content {
+    max-width: 90vw;
+    max-height: 90vh;
+    border-radius: 12px;
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+    object-fit: contain;
+}
+
+.lightbox-close {
+    position: absolute;
+    top: 30px;
+    right: 40px;
+    font-size: 3rem;
+    color: white;
+    cursor: pointer;
+    z-index: 10000;
+    transition: color 0.2s;
+}
+
+.lightbox-close:hover {
+    color: var(--accent);
+}
+
+/* Administrative Management Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+    z-index: 2000;
+    display: none;
+    justify-content: center;
+    align-items: center;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.modal.active {
+    display: flex;
+    opacity: 1;
+}
+
+.modal-content {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 20px;
+    padding: 2.5rem;
+    width: 100%;
+    max-width: 450px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    box-shadow: 0 32px 64px rgba(0,0,0,0.6);
+}
+
+.modal-content h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 0.5rem;
+    color: white;
+}
+
+.modal-content input {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    color: white;
+    font-family: inherit;
+    font-size: 0.95rem;
+    outline: none;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.modal-content input:focus {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.modal-actions .action-btn {
+    flex: 1;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+    flex-direction: row;
+}
+
+.confirm-btn {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: var(--bg-dark) !important;
+    font-weight: 700 !important;
+}
+
+.confirm-btn:hover {
+    background: #93c5fd !important;
+    transform: translateY(-2px);
+}
+
+.danger-btn {
+    background: rgba(239, 68, 68, 0.15) !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.danger-btn:hover {
+    background: rgba(239, 68, 68, 0.3) !important;
+    border-color: rgb(239, 68, 68) !important;
+}
+
+.admin-only {
+    /* Base class for admin-only elements handled via style.display by JS */
+}
+
+.filter-group-bubble {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+@media (max-width: 768px) {
+    .floating-filter-bar {
+        width: 95%;
+        padding: 0.5rem;
+    }
+    
+    .filter-content {
+        flex-wrap: wrap;
+        justify-content: space-evenly;
+        gap: 0.5rem;
+    }
+    
+    .vertical-divider {
+        display: none;
+    }
+
+    #mobile-filter-btn {
+        display: flex !important;
+    }
+
+    .filter-group-bubble {
+        position: absolute;
+        top: calc(100% + 15px);
+        left: 50%;
+        transform: translateX(-50%) translateY(-10px);
+        background: var(--glass-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 16px;
+        padding: 1rem;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: all 0.3s ease;
+        z-index: 1001;
+        width: 90vw;
+        max-width: 320px;
+    }
+
+    .filter-group-bubble.active {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    .date-range-container {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 0.75rem;
+    }
+
+    .end-date-group {
+        justify-content: center;
+        margin-top: 0.5rem;
+    }
+}

@@ -21,11 +21,17 @@ def is_known_meme(file_hash: str) -> bool:
 
 def add_to_meme_cache(file_hash: str):
     """Add a confirmed meme fingerprint to the cache to ignore it forever."""
-    if not file_hash:
-        return
+    if not file_hash: return
     conn = get_db()
     conn.execute("INSERT OR IGNORE INTO meme_cache (file_hash, date_added) VALUES (?, ?)", 
                  (file_hash, datetime.datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+def remove_from_meme_cache(file_hash: str):
+    """Removes a meme fingerprint from cache for the Undo feature."""
+    conn = get_db()
+    conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (file_hash,))
     conn.commit()
     conn.close()
 
@@ -39,14 +45,19 @@ def is_known_upload(file_hash: str) -> bool:
 
 def add_to_uploaded_cache(file_hash: str, cloud_url: str):
     """Log an uploaded photo's signature so it isn't uploaded again."""
-    if not file_hash:
-        return
+    if not file_hash: return
     conn = get_db()
     conn.execute("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)", 
                  (file_hash, cloud_url, datetime.datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
+def remove_from_uploaded_cache(file_hash: str):
+    """Removes an uploaded fingerprint from cache for the Undo feature."""
+    conn = get_db()
+    conn.execute("DELETE FROM uploaded_cache WHERE file_hash=?", (file_hash,))
+    conn.commit()
+    conn.close()
 
 async def process_attachment(attachment) -> tuple[str, str]:
     """
@@ -69,15 +80,14 @@ async def process_attachment(attachment) -> tuple[str, str]:
     file_hash = hashlib.sha256(image_bytes).hexdigest()
     
     if is_known_meme(file_hash):
-        print(f"Skipping blacklisted meme from cache: {filename}")
         return ("DISCARD", file_hash)
         
     if is_known_upload(file_hash):
-        print(f"Skipping duplicate already-uploaded photo: {filename}")
         return ("DUPLICATE", file_hash)
         
+    # Videos should unconditionally bypass the review queue and auto-save instantly
     if filename.endswith(".mp4") or filename.endswith(".mov"):
-        return ("REVIEW", file_hash) 
+        return ("SAVE", file_hash) 
         
     if attachment.size >= 500_000:
         return ("SAVE", file_hash)

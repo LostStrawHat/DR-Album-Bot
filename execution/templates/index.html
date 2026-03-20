@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Memory Vault</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="background-animation"></div>
+    <div class="top-nav">
+        <h1>DR Al_BUM</h1>
+    </div>
+
+    <div class="floating-filter-bar" id="filter-bar">
+        <div class="filter-spotlight" id="filter-spotlight"></div>
+        <div class="filter-content">
+            <button id="mobile-filter-btn" class="action-btn" title="Filters" style="display:none;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                </svg>
+                <span>Filters</span>
+            </button>
+
+            <div class="filter-group-bubble" id="filter-group-bubble">
+                <select id="author-filter">
+                    <option value="all">All Senders</option>
+                </select>
+                <select id="type-filter">
+                    <option value="all">All Media</option>
+                    <option value="image">Images Only</option>
+                    <option value="video">Videos Only</option>
+                </select>
+
+                <div class="date-range-container">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                        <line x1="16" y1="2" x2="16" y2="6" />
+                        <line x1="8" y1="2" x2="8" y2="6" />
+                        <line x1="3" y1="10" x2="21" y2="10" />
+                    </svg>
+                    <input type="date" id="start-date" title="Select Date">
+                    <div class="end-date-group" id="end-date-group">
+                        <span>-</span>
+                        <input type="date" id="end-date" title="End Date">
+                    </div>
+                </div>
+
+                <button id="range-toggle" class="icon-btn" title="Toggle Date Range">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect width="20" height="14" x="2" y="5" rx="7" />
+                        <circle cx="16" cy="12" r="3" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="vertical-divider"></div>
+
+            <button id="admin-login-btn" class="action-btn" title="Admin Login">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                    <polyline points="10 17 15 12 10 7" />
+                    <line x1="15" x2="3" y1="12" y2="12" />
+                </svg>
+                <span>Login</span>
+            </button>
+
+            <button id="add-photo-btn" class="action-btn admin-only" style="display:none;" title="Add Photo Manually">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 12h14" />
+                    <path d="M12 5v14" />
+                </svg>
+                <span>Add</span>
+            </button>
+
+            <button id="delete-selected-btn" class="action-btn admin-only danger-btn" style="display:none;"
+                title="Delete Selection">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                    <line x1="10" x2="10" y1="11" y2="17" />
+                    <line x1="14" x2="14" y1="11" y2="17" />
+                </svg>
+                <span>Delete</span>
+            </button>
+
+            <button id="admin-logout-btn" class="action-btn admin-only" style="display:none;" title="Logout">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" x2="9" y1="12" y2="12" />
+                </svg>
+                <span>Logout</span>
+            </button>
+
+            <div class="vertical-divider"></div>
+
+            <button id="clear-filters" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 6h18" />
+                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                </svg>
+                <span>Clear</span>
+            </button>
+            <button id="select-all" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect width="18" height="18" x="3" y="3" rx="2" />
+                    <path d="m9 12 2 2 4-4" />
+                </svg>
+                <span>Select All</span>
+            </button>
+            <button id="download-bulk" class="action-btn download-btn" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" x2="12" y1="15" y2="3" />
+                </svg>
+                <span>Download</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="login-modal" class="modal">
+        <div class="modal-content glass-effect">
+            <h2>Admin Security Login</h2>
+            <input type="password" id="admin-password" placeholder="Enter Access Code">
+            <div class="modal-actions">
+                <button id="close-login" class="action-btn">Cancel</button>
+                <button id="submit-login" class="action-btn confirm-btn">Access Vault</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="add-photo-modal" class="modal">
+        <div class="modal-content glass-effect">
+            <h2>Manually Add To Vault</h2>
+            <input type="text" id="add-user-id" placeholder="User ID (e.g. 1064260220349599825)">
+            <input type="text" id="add-url" placeholder="Direct Image/Video URL">
+            <input type="text" id="add-filename" placeholder="Filename (e.g. my_photo.jpg)">
+            <div class="modal-actions">
+                <button id="close-add" class="action-btn">Cancel</button>
+                <button id="submit-add" class="action-btn confirm-btn">Log Photo</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="glass-container">
+        <div class="gallery-grid" id="gallery">
+            <!-- Loading Grid Elements Injected Via Custom JS Architecture -->
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+
+    <div id="lightbox" class="lightbox">
+        <div class="lightbox-close" id="lightbox-close">&times;</div>
+        <!-- Lightbox content (img or video) injected here via JS -->
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

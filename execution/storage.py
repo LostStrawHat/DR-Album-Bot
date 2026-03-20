@@ -1,61 +1,33 @@
-import os
-import sqlite3
-import datetime
 from dotenv import load_dotenv
-import asyncio
+import sqlite3
+import os
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
-
-# Strip invalid placeholder URLs so the cloudinary library doesn't crash on import
-if os.environ.get("CLOUDINARY_URL") == 'your_cloudinary_url_here':
-    os.environ.pop("CLOUDINARY_URL", None)
-
-import cloudinary
-import cloudinary.uploader
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
 
-CLOUDINARY_URL = os.getenv("CLOUDINARY_URL")
-if CLOUDINARY_URL and CLOUDINARY_URL != 'your_cloudinary_url_here':
-    cloudinary.config() # Auto-picks up CLOUDINARY_URL env var
+def get_db():
+    return sqlite3.connect(DB_PATH)
 
-def log_photo_to_db(message_id: str, user_id: str, cloud_url: str, file_name: str):
-    """Saves the final photo metadata URL map to our local SQLite database."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute(
-        "INSERT OR REPLACE INTO photos (message_id, user_id, timestamp, cloud_url, file_name) VALUES (?, ?, ?, ?, ?)",
-        (str(message_id), str(user_id), datetime.datetime.now().isoformat(), cloud_url, file_name)
-    )
+def log_photo_to_db(message_id: int, channel_id: int, user_id: int, user_name: str, original_url: str, file_name: str, sent_date: str = ""):
+    conn = get_db()
+    
+    # 1. Log the new photo using the latest identity
+    conn.execute('''
+        INSERT OR REPLACE INTO photos (message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (str(message_id), str(channel_id), str(user_id), user_name, original_url, file_name, sent_date))
+    
+    # 2. Propagate this fresh nickname/global_name to all historical records for this user
+    # This ensures that if they change their Discord name, the dashboard updates their entire history!
+    conn.execute("UPDATE photos SET user_name = ? WHERE user_id = ?", (user_name, str(user_id)))
+    
     conn.commit()
     conn.close()
 
-async def upload_to_cloudinary(attachment) -> str:
-    """
-    Takes a discord Attachment, uploads bytes to Cloudinary, returns the secure_url.
-    If Cloudinary is not configured yet, falls back to a free local folder dump safely!
-    """
-    if not CLOUDINARY_URL or CLOUDINARY_URL == 'your_cloudinary_url_here':
-        # Free Tier Fallback (Local File System Save)
-        local_dir = os.path.join(WORKSPACE_ROOT, 'images')
-        os.makedirs(local_dir, exist_ok=True)
-        local_path = os.path.join(local_dir, attachment.filename)
-        await attachment.save(local_path)
-        return local_path
+def remove_photo_from_db(message_id: int):
+    conn = get_db()
+    conn.execute("DELETE FROM photos WHERE message_id=?", (str(message_id),))
+    conn.commit()
+    conn.close()
 
-    # User configured Cloudinary! Upload the bytes:
-    image_bytes = await attachment.read()
-    
-    loop = asyncio.get_event_loop()
-    def do_upload():
-        return cloudinary.uploader.upload(
-            image_bytes,
-            resource_type="auto",
-            folder="discord_photos"
-        )
-        
-    try:
-        response = await loop.run_in_executor(None, do_upload)
-        secure_url = response.get('secure_url', '')
-        return secure_url
-    except Exception as e:
-        raise RuntimeError(f"Cloudinary Upload Error: {e}")
+

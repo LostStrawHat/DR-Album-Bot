@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python execution/dashboard.py
+    plan: free
+    autoDeploy: true
+    envVars:
+      PORT: 5050
+  - type: worker
+    name: bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python execution/bot.py
+    plan: free
+    autoDeploy: true

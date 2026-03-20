@@ -19,7 +19,9 @@ def setup_database():
         CREATE TABLE IF NOT EXISTS photos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             message_id TEXT UNIQUE,
+            channel_id TEXT,
             user_id TEXT,
+            user_name TEXT,
             timestamp TEXT,
             cloud_url TEXT,
             file_name TEXT
@@ -54,6 +56,17 @@ def setup_database():
     conn.commit()
     conn.close()
     print(f"Database setup complete at {DB_PATH}")
+
+def reset_all_data():
+    """Wipes all user data tables but preserves the config bindings."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM photos")
+    cursor.execute("DELETE FROM meme_cache")
+    cursor.execute("DELETE FROM uploaded_cache")
+    # We DO NOT delete from config so they don't have to redefine channels
+    conn.commit()
+    conn.close()
 
 if __name__ == "__main__":
     setup_database()
