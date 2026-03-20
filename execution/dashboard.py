@@ -7,6 +7,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import requests
 from functools import wraps
+import re
 
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
@@ -145,51 +146,89 @@ import io
 
 @app.route("/media/<message_id>")
 def proxy_media(message_id):
-    """Bridge Discord API with aggressive local caching for maximum performance."""
-    # 1. Check Local Cache First (Extreme Speed)
+    """Bridge Discord API with aggressive local caching and streaming Range support."""
     cache_path = os.path.join(CACHE_DIR, message_id)
-    if os.path.exists(cache_path):
+    
+    # helper to get file info and guess mimetype
+    def get_info():
         conn = get_db()
-        photo = conn.execute("SELECT file_name FROM photos WHERE message_id=?", (message_id,)).fetchone()
+        row = conn.execute("SELECT file_name, channel_id FROM photos WHERE message_id=?", (message_id,)).fetchone()
         conn.close()
-        guessed_type, _ = mimetypes.guess_type(photo["file_name"] if photo else "image.jpg")
+        return row
+
+    photo = get_info()
+    if not photo:
+        return "Media metadata destroyed", 404
+
+    # 1. Handle Cache Miss: Download from Discord first
+    if not os.path.exists(cache_path):
+        fresh_url = get_fresh_discord_attachment(photo["channel_id"], message_id)
+        if not fresh_url:
+            return "Failed to bridge native Discord API", 502
+        try:
+            r = requests.get(fresh_url, stream=True)
+            if r.status_code == 200:
+                with open(cache_path, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            else:
+                return f"Discord CDN blocked fetch: {r.status_code}", 502
+        except Exception as e:
+            print(f"Fetch Error: {e}")
+            return "Fetch failed", 500
+
+    # 2. Stream from Local Cache with Range Support
+    guessed_type, _ = mimetypes.guess_type(photo["file_name"])
+    mimetype = guessed_type or 'application/octet-stream'
+    
+    file_size = os.path.getsize(cache_path)
+    range_header = request.headers.get('Range', None)
+    
+    if not range_header:
+        # Standard full-file response
         return send_file(
             cache_path,
-            mimetype=guessed_type or 'application/octet-stream',
-            last_modified=os.path.getmtime(cache_path),
-            max_age=31536000 # 1 year browser cache
+            mimetype=mimetype,
+            max_age=31536000
         )
 
-    # 2. Cache Miss: Fetch from Discord
-    conn = get_db()
-    photo = conn.execute("SELECT channel_id, file_name FROM photos WHERE message_id=?", (message_id,)).fetchone()
-    conn.close()
-    
-    if not photo or not photo["channel_id"]:
-        return "Media metadata destroyed", 404
-        
-    fresh_url = get_fresh_discord_attachment(photo["channel_id"], message_id)
-    if not fresh_url:
-        return "Failed to bridge native Discord API", 502
-        
+    # Range request (Browser wanting only part of the file, common for videos)
     try:
-        r = requests.get(fresh_url, stream=True)
-        if r.status_code == 200:
-            # 3. Save to Local Cache for future requests
-            with open(cache_path, 'wb') as f:
-                f.write(r.content)
+        byte1, byte2 = 0, None
+        range_match = re.search(r'bytes=(\d+)-(\d*)', range_header)
+        if range_match:
+            byte1 = int(range_match.group(1))
+            if range_match.group(2):
+                byte2 = int(range_match.group(2))
+        
+        if byte2 is None:
+            byte2 = file_size - 1
+        if byte2 >= file_size:
+            byte2 = file_size - 1
             
-            guessed_type, _ = mimetypes.guess_type(photo["file_name"])
-            return send_file(
-                io.BytesIO(r.content),
-                mimetype=guessed_type or 'application/octet-stream',
-                download_name=photo["file_name"],
-                max_age=31536000
-            )
-        return f"Discord CDN blocked fetch: {r.status_code}", 502
+        length = byte2 - byte1 + 1
+        
+        def generate():
+            with open(cache_path, 'rb') as f:
+                f.seek(byte1)
+                remaining = length
+                while remaining > 0:
+                    chunk_size = min(remaining, 8192)
+                    data = f.read(chunk_size)
+                    if not data:
+                        break
+                    yield data
+                    remaining -= len(data)
+
+        resp = app.response_class(generate(), 206, mimetype=mimetype, direct_passthrough=True)
+        resp.headers.add('Content-Range', f'bytes {byte1}-{byte2}/{file_size}')
+        resp.headers.add('Accept-Ranges', 'bytes')
+        resp.headers.add('Content-Length', str(length))
+        resp.headers.add('Cache-Control', 'public, max-age=31536000')
+        return resp
     except Exception as e:
-        print(f"Proxy Stream Error: {e}")
-        return "Stream failed", 500
+        print(f"Streaming Error: {e}")
+        return send_file(cache_path, mimetype=mimetype)
 
 @app.route("/api/download_bulk", methods=["POST"])
 def bulk_download():
