@@ -295,7 +295,7 @@ async def album_command(interaction: discord.Interaction):
 
 
 
-async def handle_media_routing(message: discord.Message):
+async def handle_media_routing(message: discord.Message, silent: bool = False):
     for attachment in message.attachments:
         action, file_hash = await process_attachment(attachment)
         
@@ -317,12 +317,13 @@ async def handle_media_routing(message: discord.Message):
                 add_to_uploaded_cache(file_hash, cloud_url)
                 await discord_log(bot, f"✅ Safely Archived seamlessly to Dashboard!", attachment.url)
                 
-                # Send the auto-deleting confirmation message in the chat
-                url = get_config("album_url")
-                album_text = ""
-                if url:
-                    album_text = f" View them here: **[Album](<{url}>)**"
-                await message.channel.send(f"{message.author.mention} ✅ successfully uploaded your photo/video(s) to the vault!{album_text}", delete_after=8.0)
+                # Send the auto-deleting confirmation message in the chat (unless silent)
+                if not silent:
+                    url = get_config("album_url")
+                    album_text = ""
+                    if url:
+                        album_text = f" View them here: **[Album](<{url}>)**"
+                    await message.channel.send(f"{message.author.mention} ✅ successfully uploaded your photo/video(s) to the vault!{album_text}", delete_after=8.0)
             except Exception as e:
                 await discord_log(bot, f"🚨 **SQL Engine Crash on Auto-Save** `{attachment.filename}`:\n```{e}```", attachment.url)
             
@@ -458,7 +459,7 @@ async def sync_history(interaction: discord.Interaction):
     try:
         async for message in channel.history(limit=None, oldest_first=True):
             if message.attachments:
-                await handle_media_routing(message)
+                await handle_media_routing(message, silent=True)
                 
         await discord_log(bot, "✅ History sync complete!")
     except discord.Forbidden:
