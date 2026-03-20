@@ -44,10 +44,16 @@
                         <line x1="8" y1="2" x2="8" y2="6" />
                         <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
-                    <input type="date" id="start-date" title="Select Date">
+                    <div class="date-input-wrapper">
+                        <span class="date-label">From:</span>
+                        <input type="date" id="start-date" title="Select Date">
+                    </div>
                     <div class="end-date-group" id="end-date-group">
-                        <span>-</span>
-                        <input type="date" id="end-date" title="End Date">
+                        <div class="date-divider"></div>
+                        <div class="date-input-wrapper">
+                            <span class="date-label">To:</span>
+                            <input type="date" id="end-date" title="End Date">
+                        </div>
                     </div>
                 </div>
 
@@ -57,6 +63,7 @@
                         <rect width="20" height="14" x="2" y="5" rx="7" />
                         <circle cx="16" cy="12" r="3" />
                     </svg>
+                    <span>Range</span>
                 </button>
             </div>
 

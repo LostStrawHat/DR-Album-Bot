@@ -273,6 +273,27 @@ async def set_photo_channel(interaction: discord.Interaction, channel: discord.T
     set_config("photo_channel_id", str(channel.id))
     await interaction.response.send_message(f"Photo channel bound to {channel.mention}.", ephemeral=True)
 
+@bot.tree.command(name="set_album_url", description="Set the public URL for the album dashboard")
+@app_commands.describe(url="The public URL (e.g. from Cloudflare)")
+async def set_album_url(interaction: discord.Interaction, url: str):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Only admins can run this!", ephemeral=True)
+        return
+    # Ensure it starts with http/https
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    set_config("album_url", url)
+    await interaction.response.send_message(f"✅ Album URL saved as: {url}", ephemeral=True)
+
+@bot.tree.command(name="album", description="Get the link to the official memory vault album!")
+async def album_command(interaction: discord.Interaction):
+    url = get_config("album_url")
+    if url:
+        await interaction.response.send_message(f"🔗 Here is the album link: **[Album](<{url}>)**")
+    else:
+        await interaction.response.send_message("❌ The album URL hasn't been set yet. An admin needs to run `/set_album_url`.", ephemeral=True)
+
+
 
 async def handle_media_routing(message: discord.Message):
     for attachment in message.attachments:
@@ -297,7 +318,11 @@ async def handle_media_routing(message: discord.Message):
                 await discord_log(bot, f"✅ Safely Archived seamlessly to Dashboard!", attachment.url)
                 
                 # Send the auto-deleting confirmation message in the chat
-                await message.channel.send(f"{message.author.mention} ✅ successfully uploaded your photo/video(s) to the album!", delete_after=5.0)
+                url = get_config("album_url")
+                album_text = ""
+                if url:
+                    album_text = f" View them here: **[Album](<{url}>)**"
+                await message.channel.send(f"{message.author.mention} ✅ successfully uploaded your photo/video(s) to the vault!{album_text}", delete_after=8.0)
             except Exception as e:
                 await discord_log(bot, f"🚨 **SQL Engine Crash on Auto-Save** `{attachment.filename}`:\n```{e}```", attachment.url)
             

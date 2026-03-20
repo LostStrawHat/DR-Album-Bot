@@ -20,3 +20,10 @@ A localized Discord bot that passively archives hangout photos and videos to Clo
 - Persistent `photos.sqlite3` Database recording `photos`, `meme_cache`, `uploaded_cache`, and `config`.
 - Images uploaded successfully to Cloudinary.
 - Native Discord logging directly into `#bot-logs`.
+- Custom Dashboard Link accessible via `/album` slash command.
+
+## New Features & UI Optimizations
+- **Public Album Access**: Added `/album` (public) and `/set_album_url` (admin only) commands to manage and share the dashboard link easily.
+- **Mobile Density**: Implementation of a 2-column gallery grid on mobile devices (via `repeat(2, 1fr)`) and reduced container padding to maximize information density.
+- **Sticky UX**: The filter bar now uses `position: sticky` to remain accessible at the top of the screen during scrolling while starting below the page title.
+- **Clean Hyperlinks**: Dashboard links are sent as compressed markdown hyperlinks `[Album](<url>)` with embed suppression to avoid bulky Discord previews.
