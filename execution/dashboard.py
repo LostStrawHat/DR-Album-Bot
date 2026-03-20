@@ -41,6 +41,10 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+@app.route("/review")
+def review_page():
+    return render_template("review.html")
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -390,6 +394,76 @@ def backfill_user_names():
     conn.commit()
     conn.close()
     print("[Backfill] Done!")
+
+@app.route("/api/review/photos")
+def api_get_review_photos():
+    """Returns all photos currently in the review queue (meme_cache)."""
+    conn = get_db()
+    # Ensure we only show items that have a cloud_url stored
+    photos = conn.execute("SELECT file_hash, date_added, cloud_url, file_name, user_name, timestamp FROM meme_cache WHERE cloud_url IS NOT NULL ORDER BY date_added DESC").fetchall()
+    conn.close()
+    
+    res = []
+    for p in photos:
+        res.append({
+            "file_hash": p["file_hash"],
+            "date_added": p["date_added"],
+            "cloud_url": p["cloud_url"],
+            "file_name": p["file_name"],
+            "user_name": p["user_name"] or "Unknown User",
+            "timestamp": p["timestamp"]
+        })
+    return jsonify(res)
+
+@app.route("/api/review/approve", methods=["POST"])
+def api_approve_photos():
+    """Moves selected photos from review queue to the main vault."""
+    data = request.json
+    hashes = data.get("hashes", [])
+    if not hashes:
+        return jsonify({"status": "error", "message": "No photos selected"}), 400
+        
+    conn = get_db()
+    processed = 0
+    for h in hashes:
+        # Get metadata from meme_cache
+        row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
+        if row:
+            # 1. Add to main photos table
+            # We use a special message_id prefix to indicate it was a web-approved item
+            conn.execute('''
+                INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (f"web-{h[:12]}", "web-review", row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
+            
+            # 2. Add to uploaded_cache to prevent future duplicates
+            conn.execute("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)",
+                         (h, row["cloud_url"], row["timestamp"]))
+            
+            # 3. Remove from meme_cache
+            conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (h,))
+            processed += 1
+            
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "processed": processed})
+
+@app.route("/api/review/blacklist", methods=["POST"])
+def api_blacklist_photos():
+    """Confirms items should stay blacklisted (strips metadata to save space)."""
+    data = request.json
+    hashes = data.get("hashes", [])
+    if not hashes:
+        return jsonify({"status": "error", "message": "No photos selected"}), 400
+        
+    conn = get_db()
+    for h in hashes:
+        # Keep the hash but wipe the metadata to save DB space (converted to a "permanent" blacklist)
+        conn.execute("UPDATE meme_cache SET cloud_url=NULL, file_name=NULL, user_id=NULL, user_name=NULL, timestamp=NULL WHERE file_hash=?", (h,))
+            
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success", "processed": len(hashes)})
 
 if __name__ == "__main__":
     backfill_user_names()

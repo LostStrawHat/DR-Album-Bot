@@ -28,11 +28,16 @@ def setup_database():
         )
     ''')
     
-    # Stores fingerprints of known memes to save API costs
+    # Stores fingerprints of known memes or items pending review
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS meme_cache (
             file_hash TEXT PRIMARY KEY,
-            date_added TEXT
+            date_added TEXT,
+            cloud_url TEXT,
+            file_name TEXT,
+            user_id TEXT,
+            user_name TEXT,
+            timestamp TEXT
         )
     ''')
     
@@ -54,8 +59,21 @@ def setup_database():
     ''')
     
     conn.commit()
+    
+    # Migration for existing databases
+    try:
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN cloud_url TEXT")
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN file_name TEXT")
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN user_id TEXT")
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN user_name TEXT")
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN timestamp TEXT")
+    except sqlite3.OperationalError:
+        # Columns already exist
+        pass
+        
+    conn.commit()
     conn.close()
-    print(f"Database setup complete at {DB_PATH}")
+    print(f"Database setup and migration complete at {DB_PATH}")
 
 def reset_all_data():
     """Wipes all user data tables but preserves the config bindings."""

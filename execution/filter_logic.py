@@ -19,12 +19,15 @@ def is_known_meme(file_hash: str) -> bool:
     conn.close()
     return result is not None
 
-def add_to_meme_cache(file_hash: str):
-    """Add a confirmed meme fingerprint to the cache to ignore it forever."""
+def add_to_meme_cache(file_hash: str, cloud_url: str = None, file_name: str = None, user_id: str = None, user_name: str = None, timestamp: str = None):
+    """Add a photo's metadata to the review/blacklist queue."""
     if not file_hash: return
     conn = get_db()
-    conn.execute("INSERT OR IGNORE INTO meme_cache (file_hash, date_added) VALUES (?, ?)", 
-                 (file_hash, datetime.datetime.now().isoformat()))
+    conn.execute('''
+        INSERT OR REPLACE INTO meme_cache 
+        (file_hash, date_added, cloud_url, file_name, user_id, user_name, timestamp) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (file_hash, datetime.datetime.now().isoformat(), cloud_url, file_name, user_id, user_name, timestamp))
     conn.commit()
     conn.close()
 

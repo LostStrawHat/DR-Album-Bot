@@ -330,8 +330,15 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
                 await discord_log(bot, f"🚨 **SQL Engine Crash on Auto-Save** `{attachment.filename}`:\n```{e}```", attachment.url)
             
         elif action == "REVIEW":
-            # Blacklist by default unless approved
-            add_to_meme_cache(file_hash)
+            # Blacklist by default unless approved, but store metadata for Web Review
+            add_to_meme_cache(
+                file_hash, 
+                cloud_url=attachment.url, 
+                file_name=attachment.filename,
+                user_id=str(message.author.id),
+                user_name=message.author.display_name,
+                timestamp=message.created_at.isoformat()
+            )
             await discord_log(bot, f"🛡️ **Auto-Blacklisted pending review**: `{attachment.filename}` (Small size/Heuristic flag).", attachment.url)
             
             review_channel_id = get_config("review_channel_id")
