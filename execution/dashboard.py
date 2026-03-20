@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import requests
 from functools import wraps
 import re
+import subprocess
 
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
@@ -191,10 +192,6 @@ def proxy_thumbnail(message_id):
     file_name = photo["file_name"].lower()
     is_video = file_name.endswith(('.mp4', '.mov'))
     
-    # If it's a video, fallback to original media proxy since we don't have FFMPEG/OpenCV for frames yet
-    if is_video:
-        return redirect(f"/media/{message_id}")
-
     thumb_path = os.path.join(THUMB_DIR, f"{message_id}.jpg")
     
     # 1. Provide cached thumbnail immediately if it exists
@@ -208,19 +205,41 @@ def proxy_thumbnail(message_id):
 
     # 3. Generate the thumbnail on the fly
     try:
-        with Image.open(original_cache_path) as img:
-            # Convert to RGB if necessary (e.g. for PNGs with transparency)
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            
-            # Heavy compression logic: Max 400x400
-            img.thumbnail((300, 300), Image.Resampling.LANCZOS)
-            img.save(thumb_path, "JPEG", quality=65, optimize=True)
+        if is_video:
+            # Use FFmpeg to extract a frame at 1s (or 0s if it fails)
+            # -ss 1.0 (seek to 1s) -i (input) -frames:v 1 (one frame) -q:v 2 (high quality jpg)
+            cmd = [
+                'ffmpeg', '-y', 
+                '-ss', '1.0', 
+                '-i', original_cache_path, 
+                '-frames:v', '1', 
+                '-q:v', '4', 
+                thumb_path
+            ]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        else:
+            with Image.open(original_cache_path) as img:
+                # Convert to RGB if necessary (e.g. for PNGs with transparency)
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                
+                # Heavy compression logic: Max 300x300
+                img.thumbnail((300, 300), Image.Resampling.LANCZOS)
+                img.save(thumb_path, "JPEG", quality=65, optimize=True)
         
         return send_file(thumb_path, mimetype='image/jpeg', max_age=31536000)
     except Exception as e:
         print(f"Thumbnail generation failed for {message_id}: {e}")
-        # Graceful fallback: serve original
+        # If FFmpeg fails (e.g. video too short), try seeking to 0
+        if is_video:
+            try:
+                cmd_fallback = ['ffmpeg', '-y', '-i', original_cache_path, '-frames:v', '1', '-q:v', '4', thumb_path]
+                subprocess.run(cmd_fallback, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+                return send_file(thumb_path, mimetype='image/jpeg', max_age=31536000)
+            except:
+                pass
+        
+        # Final graceful fallback: serve original
         return redirect(f"/media/{message_id}")
 
 

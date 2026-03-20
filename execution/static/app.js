@@ -128,8 +128,10 @@ function renderGallery() {
         if (p.is_video) {
             media = document.createElement('video');
             media.src = p.proxy_url;
+            media.poster = `/thumbnail/${p.id}`;
             media.muted = true;
             media.loop = true;
+            media.preload = "none";
             card.addEventListener('mouseenter', () => media.play());
             card.addEventListener('mouseleave', () => media.pause());
         } else {
