@@ -9,6 +9,7 @@ import sqlite3
 from filter_logic import process_attachment, add_to_meme_cache, add_to_uploaded_cache, remove_from_meme_cache, remove_from_uploaded_cache, is_known_upload
 from storage import log_photo_to_db, remove_photo_from_db
 import db_manager
+import tunnel_manager
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -273,25 +274,24 @@ async def set_photo_channel(interaction: discord.Interaction, channel: discord.T
     set_config("photo_channel_id", str(channel.id))
     await interaction.response.send_message(f"Photo channel bound to {channel.mention}.", ephemeral=True)
 
-@bot.tree.command(name="set_album_url", description="Set the public URL for the album dashboard")
-@app_commands.describe(url="The public URL (e.g. from Cloudflare)")
-async def set_album_url(interaction: discord.Interaction, url: str):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Only admins can run this!", ephemeral=True)
-        return
-    # Ensure it starts with http/https
-    if not url.startswith(('http://', 'https://')):
-        url = 'https://' + url
-    set_config("album_url", url)
-    await interaction.response.send_message(f"✅ Album URL saved as: {url}", ephemeral=True)
 
 @bot.tree.command(name="album", description="Get the link to the official memory vault album!")
 async def album_command(interaction: discord.Interaction):
-    url = get_config("album_url")
+    await interaction.response.defer(ephemeral=False)
+    
+    # Ensure the tunnel is active and grab the newest URL
+    url = tunnel_manager.ensure_tunnel_active()
+    
     if url:
-        await interaction.response.send_message(f"🔗 Here is the album link: **[Album](<{url}>)**")
+        set_config("album_url", url)
+        await interaction.followup.send(f"🔗 Here is the live album link: **[Album](<{url}>)**", ephemeral=False)
     else:
-        await interaction.response.send_message("❌ The album URL hasn't been set yet. An admin needs to run `/set_album_url`.", ephemeral=True)
+        # Fallback to database URL if tunnel fails to spawn
+        db_url = get_config("album_url")
+        if db_url:
+            await interaction.followup.send(f"⚠️ Tunnel manager failed, but here is the last known link: **[Album](<{db_url}>)**", ephemeral=False)
+        else:
+            await interaction.followup.send("❌ Could not generate a public link. Please ensure `cloudflared_local` exists and the dashboard is running on port 5050.", ephemeral=False)
 
 
 
