@@ -1,5 +1,7 @@
 import os
 import discord
+import requests
+import hashlib
 from discord.ext import commands
 from discord import app_commands
 from dotenv import load_dotenv
@@ -338,7 +340,14 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
                 if review_channel:
                     view = ReviewView(original_message=message, attachment=attachment, file_hash=file_hash, bot_instance=bot)
                     content = f"🛡️ **Auto-Blacklisted Image - Rescue?**\nSent by: {message.author.mention}\n{attachment.url}"
-                    await review_channel.send(content=content, view=view)
+                    msg = await review_channel.send(content=content, view=view)
+                    
+                    # Auto-add reactions for fallback moderation
+                    try:
+                        await msg.add_reaction("✅")
+                        await msg.add_reaction("🚫")
+                    except:
+                        pass
 
 async def handle_manual_add(interaction: discord.Interaction, message: discord.Message):
     if not message.attachments:
@@ -465,6 +474,58 @@ async def sync_history(interaction: discord.Interaction):
     except discord.Forbidden:
         await discord_log(bot, "❌ **Missing Access!** I can't read message history in that channel. Please grant me `Read Message History` and `View Channels` permissions.")
 
+@bot.tree.command(name="bulk_action", description="Process multiple pending photos in the admin-queue at once")
+@app_commands.describe(action="The action to take (approve/blacklist)", count="How many messages to scan from the top of the channel")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Approve All", value="approve"),
+    app_commands.Choice(name="Blacklist All", value="blacklist")
+])
+async def bulk_action(interaction: discord.Interaction, action: str, count: int = 50):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Only admins can run this!", ephemeral=True)
+        return
+        
+    review_channel_id = get_config("review_channel_id")
+    if not review_channel_id or interaction.channel_id != int(review_channel_id):
+        await interaction.response.send_message(f"Please run this command in the admin-queue channel!", ephemeral=True)
+        return
+        
+    await interaction.response.defer(ephemeral=True)
+    
+    processed = 0
+    async for message in interaction.channel.history(limit=count):
+        if message.author != bot.user: continue
+        if "🛡️ **Auto-Blacklisted Image - Rescue?**" not in message.content: continue
+        
+        # Extract attachment URL from message content
+        lines = message.content.split("\n")
+        url = lines[-1] if lines else None
+        if not url or "https://" not in url: continue
+        
+        # We need the hash. This is tricky because the bot doesn't store the hash in the message.
+        # However, we can re-calculate it or look it up.
+        # For simplicity in bulk approve, we'll try to process the attachment URL.
+        # Since these are Discord CDN URLs, we can fetch them.
+        
+        try:
+            r = requests.get(url)
+            if r.status_code == 200:
+                file_hash = hashlib.sha256(r.content).hexdigest()
+                filename = url.split("/")[-1].split("?")[0]
+                
+                if action == "approve":
+                    remove_from_meme_cache(file_hash)
+                    composite_id = f"bulk-{message.id}"
+                    log_photo_to_db(composite_id, interaction.channel_id, bot.user.id, "Bulk Approved", url, filename, message.created_at.isoformat())
+                    add_to_uploaded_cache(file_hash, url)
+                
+                await message.edit(content=f"✅ **Bulk {action.upper()}D**\n{url}", view=None)
+                processed += 1
+        except Exception as e:
+            print(f"Error in bulk action: {e}")
+            
+    await interaction.followup.send(f"✅ Bulk {action} complete! Processed {processed} messages.", ephemeral=True)
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author == bot.user:
@@ -474,6 +535,52 @@ async def on_message(message: discord.Message):
     if photo_channel_id and str(message.channel.id) == photo_channel_id:
         if message.attachments:
             await handle_media_routing(message)
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    if payload.user_id == bot.user.id:
+        return
+        
+    review_channel_id = get_config("review_channel_id")
+    if not review_channel_id or payload.channel_id != int(review_channel_id):
+        return
+        
+    if str(payload.emoji) not in ["✅", "🚫"]:
+        return
+        
+    channel = bot.get_channel(payload.channel_id)
+    message = await channel.fetch_message(payload.message_id)
+    
+    if "🛡️ **Auto-Blacklisted Image - Rescue?**" not in message.content:
+        return
+        
+    # Extract URL and re-process (simulating the button click)
+    lines = message.content.split("\n")
+    url = lines[-1]
+    
+    try:
+        filename = url.split("/")[-1].split("?")[0]
+        r = requests.get(url)
+        if r.status_code == 200:
+            file_hash = hashlib.sha256(r.content).hexdigest()
+            filename = url.split("/")[-1].split("?")[0]
+            
+            if str(payload.emoji) == "✅":
+                remove_from_meme_cache(file_hash)
+                composite_id = f"react-{message.id}"
+                log_photo_to_db(composite_id, payload.channel_id, payload.user_id, "Approved via React", url, filename, message.created_at.isoformat())
+                add_to_uploaded_cache(file_hash, url)
+                await message.edit(content=f"✅ **Approved via Reaction**\n{url}", view=None)
+            else:
+                add_to_meme_cache(file_hash)
+                await message.edit(content=f"🚫 **Blacklisted via Reaction**\n{url}", view=None)
+                
+            try:
+                await message.clear_reactions()
+            except:
+                pass
+    except Exception as e:
+        print(f"Error in reaction moderation: {e}")
 
 if __name__ == '__main__':
     if TOKEN and TOKEN != 'your_discord_bot_token_here':
