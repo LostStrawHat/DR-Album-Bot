@@ -56,6 +56,7 @@ def start_dashboard():
         return None
 
     print("Starting Dashboard...")
+    os.makedirs(os.path.dirname(DASHBOARD_PID_FILE), exist_ok=True)
     cmd = [PYTHON_PATH, os.path.join(WORKSPACE_ROOT, 'execution', 'dashboard.py')]
     
     process = subprocess.Popen(
@@ -85,6 +86,7 @@ def start_tunnel():
         open(LOG_FILE, 'w').close()
 
     print(f"Starting Cloudflare tunnel: {CLOUDFLARED_PATH}")
+    os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     
     # Command to run cloudflared
     cmd = [CLOUDFLARED_PATH, "tunnel", "--url", "http://localhost:5050"]
