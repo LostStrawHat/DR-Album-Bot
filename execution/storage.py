@@ -40,3 +40,11 @@ def remove_all_photos_for_message(message_id: int):
     conn.commit()
     conn.close()
     return count
+
+def update_legacy_metadata(old_id: str, new_id: str, channel_id: str):
+    """Replaces a synthetic 'web-' ID with real Discord message/channel metadata."""
+    conn = get_db()
+    # Update the ID and the channel
+    conn.execute("UPDATE photos SET message_id = ?, channel_id = ? WHERE message_id = ?", (str(new_id), str(channel_id), str(old_id)))
+    conn.commit()
+    conn.close()

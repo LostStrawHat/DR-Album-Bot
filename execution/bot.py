@@ -9,7 +9,7 @@ import sqlite3
 
 # Import our custom logic
 from filter_logic import process_attachment, add_to_meme_cache, add_to_uploaded_cache, remove_from_meme_cache, remove_from_uploaded_cache, is_known_upload
-from storage import log_photo_to_db, remove_photo_from_db, remove_all_photos_for_message
+from storage import log_photo_to_db, remove_photo_from_db, remove_all_photos_for_message, update_legacy_metadata
 import db_manager
 import tunnel_manager
 from media_processor import process_media_eagerly
@@ -512,6 +512,95 @@ async def sync_history(interaction: discord.Interaction):
         await discord_log(bot, "✅ History sync complete!")
     except discord.Forbidden:
         await discord_log(bot, "❌ **Missing Access!** I can't read message history in that channel. Please grant me `Read Message History` and `View Channels` permissions.")
+
+@bot.tree.command(name="backfill_legacy_links", description="Scrapes history to restore missing Discord links for legacy vault items.")
+async def backfill_legacy_links(interaction: discord.Interaction):
+    """Heavy operation: Scrapes channel history to find and link orphaned 'web-' items back to Discord messages."""
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("Only admins can run this!", ephemeral=True)
+        return
+        
+    photo_channel_id = get_config("photo_channel_id")
+    if not photo_channel_id:
+        await interaction.response.send_message("Please run `/set_photo_channel` first!", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    
+    conn = get_db()
+    # Get all legacy items and their hashes via the uploaded_cache join
+    try:
+        legacy_items = conn.execute("""
+            SELECT p.message_id, u.file_hash 
+            FROM photos p
+            JOIN uploaded_cache u ON p.cloud_url = u.cloud_url
+            WHERE p.message_id LIKE 'web-%'
+        """).fetchall()
+    except Exception as e:
+        print(f"Backfill query error: {e}")
+        legacy_items = []
+    conn.close()
+    
+    if not legacy_items:
+        await interaction.followup.send("No legacy 'web-' items found in the vault to backfill.", ephemeral=True)
+        return
+        
+    # Map hash -> old_id
+    hash_to_old_id = {row[1]: row[0] for row in legacy_items}
+    total_to_fix = len(hash_to_old_id)
+    
+    await interaction.followup.send(f"Found {total_to_fix} legacy items. Starting historical scrape to match hashes... Progress logs will appear in `#bot-logs`.", ephemeral=True)
+    await discord_log(bot, f"🔍 **Starting Legacy Backfill**: Searching for {total_to_fix} missing Discord links in history...")
+    
+    channel = bot.get_channel(int(photo_channel_id))
+    if not channel:
+        await discord_log(bot, "❌ Backfill failed: Could not find the configured photo channel.")
+        return
+        
+    matched_count = 0
+    scanned_count = 0
+    
+    try:
+        # We go oldest_first=False (newest first) since user likely cares about recent stuff more
+        async for message in channel.history(limit=None, oldest_first=False):
+            scanned_count += 1
+            if not message.attachments:
+                continue
+                
+            for attachment in message.attachments:
+                # Basic media filter to avoid hashing text/zip etc
+                if not any(attachment.filename.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov']):
+                    continue
+                    
+                try:
+                    # Async read and hash - matches the logic in UploadSelect
+                    data = await attachment.read()
+                    import hashlib
+                    file_hash = hashlib.sha256(data).hexdigest()
+                    
+                    if file_hash in hash_to_old_id:
+                        old_id = hash_to_old_id.pop(file_hash)
+                        # We use the native {msg}-{att} composite ID format
+                        new_id = f"{message.id}-{attachment.id}"
+                        update_legacy_metadata(old_id, new_id, str(message.channel.id))
+                        matched_count += 1
+                        await discord_log(bot, f"🔗 **Link Restored**: `{attachment.filename}` -> Matched legacy entry `{old_id[:12]}...`")
+                except Exception as e:
+                    print(f"Error hashing attachment during backfill: {e}")
+            
+            if not hash_to_old_id:
+                break
+                
+            # Aggressive rate limit safety for heavy hashing operation
+            await asyncio.sleep(0.05)
+            
+        summary = f"✅ **Backfill Complete**! Restored {matched_count} / {total_to_fix} Discord links."
+        if hash_to_old_id:
+            summary += f"\n⚠️ **Note**: {len(hash_to_old_id)} items could not be found in history (may be outside search window or original message was deleted)."
+        await discord_log(bot, summary)
+        
+    except Exception as e:
+        await discord_log(bot, f"🚨 **Backfill Error**: Scrape interrupted.\n```{e}```")
 
 @bot.event
 async def on_message(message: discord.Message):

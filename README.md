@@ -55,6 +55,7 @@ sh run_local_public.sh
 - `/album`: Get the latest public link to the vault.
 - `/set_photo_channel`: Bind the bot to a specific channel.
 - `/refresh_names`: Re-poll the Discord API to update all stored names to current server nicknames.
+- `/backfill_legacy_links`: **[Repair Tool]** Scrapes history to restore missing Discord jump links for older "Legacy" vault entries.
 - `/reset_database`: Wipe all records (Admins only).
 
 ---
