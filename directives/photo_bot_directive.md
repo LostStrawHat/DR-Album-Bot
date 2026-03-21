@@ -8,23 +8,13 @@ A localized Discord bot that passively archives hangout photos and videos to loc
 - `execution/filter_logic.py` (Handles heuristic file-size checks and SQLite cache hashing logic)
 - `execution/dashboard.py` (Flask server for high-volume moderation, secure public access, and gallery management)
 - `execution/db_manager.py` (Creates the persistent local tables for meme, photo, and configuration caching)
-- `execution/storage.py` (Legacy Cloudinary logic / environment variable extraction)
+- `execution/storage.py` (Database persistence layer for photo and user metadata)
 
 ## Architecture & Foundational Learnings
-- **Heuristics Over AI**: We heavily pivoted from HuggingFace to an offline 500KB size limit. Memes are notoriously small; photos from modern smartphones easily clear 1MB. Highly effective and completely free.
-- **Meme Cache & Duplicate Shields**: We use SHA256 hashing specifically via `hashlib` to create fingerprints of successfully deployed photos and discarded meme cache components, creating infinite API-savings by intercepting duplicates.
-- **Hybrid Moderation**: Moderation is handled via a 2-tier system. Individual items can be approved/discarded directly in Discord via ✅/❌ reactions in the `#admin-queue`. For high-volume days, a Web Review Queue provides a bulk management interface.
-- **Channel ID Preservation**: To ensure media links remain refreshable via Discord's CDN API, we store the original `channel_id` in both the `photos` and `meme_cache` tables.
-- **Server Nicknames**: The bot prioritizes server nicknames (`fetch_member`) over global display names for all attribution, ensuring the dashboard reflects the community's local identities.
-
-## Outputs
-- Persistent `photos.sqlite3` Database recording `photos`, `meme_cache`, `uploaded_cache`, and `config`.
-- Local media and thumbnail cache in `execution/cache/`.
-- Native Discord logging directly into `#bot-logs`.
-- Custom Dashboard Link accessible via `/album` slash command.
-
-## New Features & UI Optimizations
-- **Gallery Delete & Blacklist**: Admins can wipe items from the dashboard. Deletion automatically converts the file hash into a permanent blacklist entry, preventing re-upload.
-- **OpenCV Video Thumbnails**: Since FFmpeg was missing locally, we successfully transitioned video poster generation to `OpenCV`. It extracts the 1s frame, scales it to 300px while maintaining the aspect ratio, and serves it as a lightweight JPEG.
-- **Mobile Density**: Implementation of a 2-column gallery grid on mobile devices (via `repeat(2, 1fr)`) and reduced container padding to maximize information density.
-- **Sticky UX**: The filter bar now uses `position: sticky` to remain accessible at the top of the screen during scrolling.
+- **SQLite WAL Mode & Concurrency**: We enabled `Write-Ahead Logging (WAL)` in `db_manager.py`. This allows the Flask Dashboard to read from the database at high speed while the Discord Bot is concurrently writing, preventing "Database Locked" errors.
+- **Eager Caching & Lifecycle Sync**: The bot now uses an asynchronous `media_processor.py` to eagerly cache high-res photos and generate thumbnails in the background *immediately* upon approval. This ensures the Vault remains accessible even if the original Discord message is deleted.
+- **Automated Deletion Synchronization**: We implemented `on_raw_message_delete` and `on_raw_bulk_message_delete` listeners. If a message is deleted on Discord, the Vault automatically purges the associated records and cache, respecting user privacy and server cleanup.
+- **Reaction-Based ID Consistency**: To support global deletion sync, we updated both the Web Dashboard and Discord Reaction logic to store consistent Snowflake-based composite IDs (`message_id-attachment_id`) for every archived item.
+- **Cross-Platform Muted Autoplay**: We optimized the gallery for Brave and iOS Safari by injecting raw HTML `muted`, `autoplay`, and `playsinline` attributes. This allows videos to "move around" in the grid silently for better media differentiation on all devices.
+- **Mobile Density & Accessibility**: Implementation of a 2-column grid and a high-visibility, persistent selection circle on mobile to ensure the Vault is easily manageable on touch screens.
+- **Sticky UX**: The filter bar now uses `position: sticky` and a glassmorphism design to remain accessible at the top of the screen during scrolling.

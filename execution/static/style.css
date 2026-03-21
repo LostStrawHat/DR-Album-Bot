@@ -55,6 +55,7 @@ header h1 {
     font-size: 3rem;
     font-weight: 800;
     background: linear-gradient(135deg, #fff, var(--accent));
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     margin-bottom: 0.5rem;
@@ -530,7 +531,7 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
 }
 
 .admin-only {
-    /* Base class for admin-only elements handled via style.display by JS */
+    display: none !important; /* Managed via JS for authenticated sessions */
 }
 
 .filter-group-bubble {
@@ -633,5 +634,15 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
 
     .end-date-group.active {
         display: flex;
+    }
+
+    .check-indicator {
+        opacity: 1;
+        background: rgba(0, 0, 0, 0.4);
+        border-color: rgba(255, 255, 255, 0.8);
+        width: 34px;
+        height: 34px;
+        top: 10px;
+        right: 10px;
     }
 }

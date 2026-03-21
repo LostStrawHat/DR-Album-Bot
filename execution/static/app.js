@@ -131,9 +131,16 @@ function renderGallery() {
             media.poster = `/thumbnail/${p.id}`;
             media.muted = true;
             media.loop = true;
-            media.preload = "none";
-            card.addEventListener('mouseenter', () => media.play());
-            card.addEventListener('mouseleave', () => media.pause());
+            media.autoplay = true;
+            media.preload = "auto"; 
+            media.playsInline = true;
+            
+            // Critical for iOS Safari and strict browsers (e.g. Brave) which ignore JS properties 
+            // and require raw HTML attributes to grant silent autoplay permissions.
+            media.setAttribute('muted', '');
+            media.setAttribute('loop', '');
+            media.setAttribute('autoplay', '');
+            media.setAttribute('playsinline', '');
         } else {
             media = document.createElement('img');
             media.src = `/thumbnail/${p.id}`;
@@ -387,6 +394,8 @@ function openLightbox(url, isVideo) {
         content.src = url;
         content.controls = true;
         content.autoplay = true;
+        content.playsInline = true;
+        content.setAttribute('playsinline', '');
         content.className = 'lightbox-content';
     } else {
         content = document.createElement('img');

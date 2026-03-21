@@ -9,9 +9,11 @@ import sqlite3
 
 # Import our custom logic
 from filter_logic import process_attachment, add_to_meme_cache, add_to_uploaded_cache, remove_from_meme_cache, remove_from_uploaded_cache, is_known_upload
-from storage import log_photo_to_db, remove_photo_from_db
+from storage import log_photo_to_db, remove_photo_from_db, remove_all_photos_for_message
 import db_manager
 import tunnel_manager
+from media_processor import process_media_eagerly
+import asyncio
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -67,6 +69,8 @@ class ReviewView(discord.ui.View):
             composite_id = f"{self.original_message.id}-{self.attachment.id}"
             log_photo_to_db(composite_id, self.original_message.channel.id, self.original_message.author.id, self.original_message.author.display_name, self.cloud_url, self.attachment.filename, self.original_message.created_at.isoformat())
             add_to_uploaded_cache(self.file_hash, self.cloud_url)
+            
+            self.bot.loop.create_task(process_media_eagerly(self.attachment, composite_id))
             
             await discord_log(self.bot, f"✅ Mod Approved Image: `{self.attachment.filename}` -> Natively recorded inside SQL!", self.attachment.url)
             
@@ -177,6 +181,7 @@ class UploadSelect(discord.ui.Select):
                 author_name = getattr(self.msg.author, 'nick', None) or self.msg.author.display_name
                 log_photo_to_db(composite_id, self.msg.channel.id, self.msg.author.id, author_name, cloud_url, att.filename, self.msg.created_at.isoformat())
                 add_to_uploaded_cache(file_hash, cloud_url)
+                bot.loop.create_task(process_media_eagerly(att, composite_id))
                 added_count += 1
             except Exception as e:
                 print(f"Error saving manually added photo: {e}")
@@ -325,6 +330,7 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
                 author_name = getattr(message.author, 'nick', None) or message.author.display_name
                 log_photo_to_db(composite_id, message.channel.id, message.author.id, author_name, cloud_url, attachment.filename, message.created_at.isoformat())
                 add_to_uploaded_cache(file_hash, cloud_url)
+                bot.loop.create_task(process_media_eagerly(attachment, composite_id))
                 await discord_log(bot, f"✅ Safely Archived seamlessly to Dashboard!", attachment.url)
                 
                 # Send the auto-deleting confirmation message in the chat (unless silent)
@@ -347,7 +353,9 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
                 user_id=str(message.author.id),
                 user_name=author_name,
                 timestamp=message.created_at.isoformat(),
-                channel_id=str(message.channel.id)
+                channel_id=str(message.channel.id),
+                original_msg_id=str(message.id),
+                attachment_id=str(attachment.id)
             )
             await discord_log(bot, f"🛡️ **Auto-Blacklisted pending review**: `{attachment.filename}` (Small size/Heuristic flag).", attachment.url)
             
@@ -404,6 +412,7 @@ async def handle_manual_add(interaction: discord.Interaction, message: discord.M
             author_name = getattr(message.author, 'nick', None) or message.author.display_name
             log_photo_to_db(composite_id, message.channel.id, message.author.id, author_name, cloud_url, att.filename, message.created_at.isoformat())
             add_to_uploaded_cache(file_hash, cloud_url)
+            bot.loop.create_task(process_media_eagerly(att, composite_id))
             await interaction.followup.send(f"✅ Successfully forced `{att.filename}` into the Dashboard!", ephemeral=True)
         except Exception as e:
             print(f"Error saving manually added photo: {e}")
@@ -499,58 +508,6 @@ async def sync_history(interaction: discord.Interaction):
     except discord.Forbidden:
         await discord_log(bot, "❌ **Missing Access!** I can't read message history in that channel. Please grant me `Read Message History` and `View Channels` permissions.")
 
-@bot.tree.command(name="bulk_action", description="Process multiple pending photos in the admin-queue at once")
-@app_commands.describe(action="The action to take (approve/blacklist)", count="How many messages to scan from the top of the channel")
-@app_commands.choices(action=[
-    app_commands.Choice(name="Approve All", value="approve"),
-    app_commands.Choice(name="Blacklist All", value="blacklist")
-])
-async def bulk_action(interaction: discord.Interaction, action: str, count: int = 50):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Only admins can run this!", ephemeral=True)
-        return
-        
-    review_channel_id = get_config("review_channel_id")
-    if not review_channel_id or interaction.channel_id != int(review_channel_id):
-        await interaction.response.send_message(f"Please run this command in the admin-queue channel!", ephemeral=True)
-        return
-        
-    await interaction.response.defer(ephemeral=True)
-    
-    processed = 0
-    async for message in interaction.channel.history(limit=count):
-        if message.author != bot.user: continue
-        if "🛡️ **Auto-Blacklisted Image - Rescue?**" not in message.content: continue
-        
-        # Extract attachment URL from message content
-        lines = message.content.split("\n")
-        url = lines[-1] if lines else None
-        if not url or "https://" not in url: continue
-        
-        # We need the hash. This is tricky because the bot doesn't store the hash in the message.
-        # However, we can re-calculate it or look it up.
-        # For simplicity in bulk approve, we'll try to process the attachment URL.
-        # Since these are Discord CDN URLs, we can fetch them.
-        
-        try:
-            r = requests.get(url)
-            if r.status_code == 200:
-                file_hash = hashlib.sha256(r.content).hexdigest()
-                filename = url.split("/")[-1].split("?")[0]
-                
-                if action == "approve":
-                    remove_from_meme_cache(file_hash)
-                    composite_id = f"bulk-{message.id}"
-                    log_photo_to_db(composite_id, interaction.channel_id, bot.user.id, "Bulk Approved", url, filename, message.created_at.isoformat())
-                    add_to_uploaded_cache(file_hash, url)
-                
-                await message.edit(content=f"✅ **Bulk {action.upper()}D**\n{url}", view=None)
-                processed += 1
-        except Exception as e:
-            print(f"Error in bulk action: {e}")
-            
-    await interaction.followup.send(f"✅ Bulk {action} complete! Processed {processed} messages.", ephemeral=True)
-
 @bot.event
 async def on_message(message: discord.Message):
     if message.author == bot.user:
@@ -597,31 +554,41 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     conn.row_factory = sqlite3.Row
     try:
         if emoji == "✅":
-            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp, channel_id FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
+            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
             if not row:
+                # Fallback for older legacy items
                 row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
-                if row:
-                    row = dict(row)
-                    row["channel_id"] = "web-review"
 
             if row:
-                if not isinstance(row, dict):
-                    row = dict(row)
+                row = dict(row)
+                orig_msg_id = row.get("original_msg_id")
+                attach_id = row.get("attachment_id")
+                
+                # Determine the permanent message_id. Prefer Snowflake composite for deletion sync.
+                if orig_msg_id and attach_id:
+                    final_msg_id = f"{orig_msg_id}-{attach_id}"
+                else:
+                    final_msg_id = f"web-{file_hash[:12]}"
+
                 channel_id = row.get("channel_id") or "web-review"
                 conn.execute('''
                     INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (f"web-{file_hash[:12]}", channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
+                ''', (final_msg_id, channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
                 
                 conn.execute("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)",
                              (file_hash, row["cloud_url"], row["timestamp"]))
                 
+                # Ensure it's cached eagerly with the CORRECT final ID
+                bot.loop.create_task(process_media_eagerly(row["cloud_url"], final_msg_id))
+                
                 conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (file_hash,))
                 conn.commit()
-                if row['file_name']:
-                    await channel.send(f"✅ Approved and added `{row['file_name']}` to vault.", delete_after=5.0)
-                else:
-                    await channel.send(f"✅ Approved item and added to vault.", delete_after=5.0)
+                
+                msg_text = f"Approved item and added to vault."
+                if row.get('file_name'):
+                    msg_text = f"Approved and added `{row['file_name']}` to vault."
+                await channel.send(f"✅ {msg_text}", delete_after=5.0)
             
         elif emoji in ["❌", "🚫"]:
             row = conn.execute("SELECT file_name FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
@@ -641,6 +608,19 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         await message.delete()
     except:
         pass
+
+@bot.event
+async def on_raw_message_delete(payload: discord.RawMessageDeleteEvent):
+    """Deep synchronization: if a message is deleted on Discord, purge it from the vault!"""
+    remove_all_photos_for_message(payload.message_id)
+    await discord_log(bot, f"🗑️ Synchronized deletion: Message `{payload.message_id}` vanished from Discord. Cleaned up vault entry.")
+
+@bot.event
+async def on_raw_bulk_message_delete(payload: discord.RawBulkMessageDeleteEvent):
+    """Deep synchronization for massive purges: handle bulk deletions efficiently."""
+    for message_id in payload.message_ids:
+        remove_all_photos_for_message(message_id)
+    await discord_log(bot, f"🗑️ Bulk Synchronization: Processed {len(payload.message_ids)} deleted messages. Vault is clean.")
 
 if __name__ == '__main__':
     if TOKEN and TOKEN != 'your_discord_bot_token_here':

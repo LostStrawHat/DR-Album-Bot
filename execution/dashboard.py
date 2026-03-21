@@ -443,31 +443,35 @@ def api_approve_photos():
     for h in hashes:
         # Get metadata from meme_cache
         try:
-            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp, channel_id FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
+            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
         except sqlite3.OperationalError:
-            # Fallback for old schemas if migration fails during runtime somehow
+            # Fallback for old schemas
             row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
-            if row:
-                row = dict(row)
-                row["channel_id"] = "web-review"
 
         if row:
-            if not isinstance(row, dict):
-                row = dict(row)
+            row = dict(row)
+            orig_msg_id = row.get("original_msg_id")
+            attach_id = row.get("attachment_id")
+            
+            # Use original Snowflake if available for global deletion sync support
+            if orig_msg_id and attach_id:
+                final_msg_id = f"{orig_msg_id}-{attach_id}"
+            else:
+                final_msg_id = f"web-{h[:12]}"
+
             channel_id = row.get("channel_id") or "web-review"
             # 1. Add to main photos table
-            # We use a special message_id prefix to indicate it was a web-approved item
             conn.execute('''
                 INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (f"web-{h[:12]}", channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
+            ''', (final_msg_id, channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
             
             # 2. Add to uploaded_cache to prevent future duplicates
             conn.execute("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)",
                          (h, row["cloud_url"], row["timestamp"]))
             
             # 3. Remove from meme_cache
-            conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (h,))
+            conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (h, ))
             processed += 1
             
     conn.commit()

@@ -6,8 +6,11 @@ WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
 
 def get_connection():
-    """Returns a connection to the SQLite database."""
-    return sqlite3.connect(DB_PATH)
+    """Returns a connection to the SQLite database with WAL enabled."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
 
 def setup_database():
     """Sets up the initial tables for the photo archiver."""
@@ -38,7 +41,9 @@ def setup_database():
             user_id TEXT,
             user_name TEXT,
             timestamp TEXT,
-            channel_id TEXT
+            channel_id TEXT,
+            original_msg_id TEXT,
+            attachment_id TEXT
         )
     ''')
     
@@ -73,6 +78,12 @@ def setup_database():
         
     try:
         cursor.execute("ALTER TABLE meme_cache ADD COLUMN channel_id TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN original_msg_id TEXT")
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN attachment_id TEXT")
     except sqlite3.OperationalError:
         pass
         
