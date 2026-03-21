@@ -7,7 +7,8 @@ A beautifully optimized, high-performance photo and video archive system for you
 ### 🚀 Performance
 - **Pillow Compression**: Automatically generates lightweight thumbnails for instant gallery loading.
 - **OpenCV Video Posters**: Robust frame-extraction for videos (fallback from locally missing FFmpeg) ensuring consistent gallery previews.
-- **Lazy Loading**: Zero video data is downloaded until you hover or click, making the UI feel extremely snappy.
+- **Lazy Loading & Deferred Media**: Zero video data is downloaded until you hover or click, avoiding browser connection limits and making the UI extremely snappy.
+- **Chunked File Streaming**: Zero-memory bulk downloads safely process massive HD video zip exports without crashing the lightweight server.
 
 ### 🛡️ Smart Archiving & Moderation
 - **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.
@@ -16,6 +17,7 @@ A beautifully optimized, high-performance photo and video archive system for you
 - **Server Nicknames**: Automatically captures and synchronizes server-specific nicknames for accurate attribution.
 
 ### 🌐 Secure Public Access
+- **Strict Environment Validations**: Web server enforces hard-failures for missing keys—never falls back to default passwords.
 - **Cloudflare Tunnels**: No port forwarding or static IP required.
 - **Auto-Sync URL**: The bot automatically detects and synchronizes its public URL with Discord slash commands on every startup.
 

@@ -23,14 +23,21 @@ if not os.path.exists(THUMB_DIR):
 # Mount the Discord Bot Token securely into the Dashboard memory to act as a stealth API proxy
 load_dotenv(os.path.join(WORKSPACE_ROOT, '.env'), override=True)
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN", "")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    raise ValueError("ADMIN_PASSWORD environment variable is missing in .env")
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key-12345")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY environment variable is missing in .env")
+app.secret_key = SECRET_KEY
 CORS(app)
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
+    conn.execute('PRAGMA journal_mode=WAL;')
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -157,6 +164,10 @@ def get_fresh_discord_attachment(channel_id, composite_id):
 import mimetypes
 import io
 from PIL import Image
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 def get_db_info(message_id):
     conn = get_db()
@@ -225,7 +236,8 @@ def proxy_thumbnail(message_id):
     # 3. Generate the thumbnail on the fly
     try:
         if is_video:
-            import cv2
+            if cv2 is None:
+                raise Exception("cv2 is not installed. Video thumbnail generation unavailable.")
             cap = cv2.VideoCapture(original_cache_path)
             cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
             success, frame = cap.read()
@@ -335,24 +347,25 @@ def bulk_download():
         
     conn = get_db()
     placeholders = ",".join("?" * len(ids))
-    photos = conn.execute(f"SELECT message_id, channel_id, file_name FROM photos WHERE message_id IN ({placeholders})", ids).fetchall()
+    photos = conn.execute(f"SELECT message_id, channel_id, cloud_url, file_name FROM photos WHERE message_id IN ({placeholders})", ids).fetchall()
     conn.close()
     
-    memory_file = io.BytesIO()
-    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+    export_dir = os.path.join(CACHE_DIR, 'exports')
+    os.makedirs(export_dir, exist_ok=True)
+    import time
+    zip_path = os.path.join(export_dir, f'export_{int(time.time())}.zip')
+    
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for p in photos:
             try:
-                fresh_url = get_fresh_discord_attachment(p["channel_id"], p["message_id"])
-                if fresh_url:
-                    r = requests.get(fresh_url, stream=True)
-                    if r.status_code == 200:
-                        zf.writestr(p["file_name"], r.content)
+                cache_path = ensure_local_cache(p["message_id"], {"channel_id": p["channel_id"], "cloud_url": p["cloud_url"]})
+                if cache_path and os.path.exists(cache_path):
+                    zf.write(cache_path, p["file_name"])
             except Exception as e:
-                print(f"Failed skipping bulk zip entry bridging Discord API: {e}")
+                print(f"Failed skipping bulk zip entry: {e}")
 
-    memory_file.seek(0)
     return send_file(
-        memory_file,
+        zip_path,
         mimetype='application/zip',
         as_attachment=True,
         download_name='discord_memory_vault.zip'
@@ -469,39 +482,42 @@ def api_approve_photos():
         
     conn = get_db()
     processed = 0
-    for h in hashes:
-        # Get metadata from meme_cache
-        try:
-            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
-        except sqlite3.OperationalError:
-            # Fallback for old schemas
-            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
+    placeholders = ",".join("?" * len(hashes))
+    
+    try:
+        rows = conn.execute(f"SELECT file_hash, cloud_url, file_name, user_id, user_name, timestamp, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash IN ({placeholders})", hashes).fetchall()
+    except sqlite3.OperationalError:
+        rows = conn.execute(f"SELECT file_hash, cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash IN ({placeholders})", hashes).fetchall()
 
-        if row:
-            row = dict(row)
-            orig_msg_id = row.get("original_msg_id")
-            attach_id = row.get("attachment_id")
-            
-            # Use original Snowflake if available for global deletion sync support
-            if orig_msg_id and attach_id:
-                final_msg_id = f"{orig_msg_id}-{attach_id}"
-            else:
-                final_msg_id = f"web-{h[:12]}"
+    photos_to_insert = []
+    uploaded_cache_to_insert = []
+    hashes_to_delete = []
 
-            channel_id = row.get("channel_id") or "web-review"
-            # 1. Add to main photos table
-            conn.execute('''
-                INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (final_msg_id, channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
-            
-            # 2. Add to uploaded_cache to prevent future duplicates
-            conn.execute("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)",
-                         (h, row["cloud_url"], row["timestamp"]))
-            
-            # 3. Remove from meme_cache
-            conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (h, ))
-            processed += 1
+    for r in rows:
+        row = dict(r)
+        h = row["file_hash"]
+        orig_msg_id = row.get("original_msg_id")
+        attach_id = row.get("attachment_id")
+        
+        if orig_msg_id and attach_id:
+            final_msg_id = f"{orig_msg_id}-{attach_id}"
+        else:
+            final_msg_id = f"web-{h[:12]}"
+
+        channel_id = row.get("channel_id") or "web-review"
+        photos_to_insert.append((final_msg_id, channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
+        uploaded_cache_to_insert.append((h, row["cloud_url"], row["timestamp"]))
+        hashes_to_delete.append((h,))
+
+    if photos_to_insert:
+        conn.executemany('''
+            INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', photos_to_insert)
+        
+        conn.executemany("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)", uploaded_cache_to_insert)
+        conn.executemany("DELETE FROM meme_cache WHERE file_hash=?", hashes_to_delete)
+        processed = len(photos_to_insert)
             
     conn.commit()
     conn.close()
@@ -516,9 +532,8 @@ def api_blacklist_photos():
         return jsonify({"status": "error", "message": "No photos selected"}), 400
         
     conn = get_db()
-    for h in hashes:
-        # Keep the hash but wipe the metadata to save DB space (converted to a "permanent" blacklist)
-        conn.execute("UPDATE meme_cache SET cloud_url=NULL, file_name=NULL, user_id=NULL, user_name=NULL, timestamp=NULL WHERE file_hash=?", (h,))
+    hashes_tuple = [(h,) for h in hashes]
+    conn.executemany("UPDATE meme_cache SET cloud_url=NULL, file_name=NULL, user_id=NULL, user_name=NULL, timestamp=NULL WHERE file_hash=?", hashes_tuple)
             
     conn.commit()
     conn.close()
