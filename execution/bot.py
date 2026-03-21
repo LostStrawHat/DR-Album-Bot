@@ -310,6 +310,7 @@ async def album_command(interaction: discord.Interaction):
 
 
 async def handle_media_routing(message: discord.Message, silent: bool = False):
+    saved_count = 0
     for attachment in message.attachments:
         action, file_hash = await process_attachment(attachment)
         
@@ -332,9 +333,7 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
                 add_to_uploaded_cache(file_hash, cloud_url)
                 bot.loop.create_task(process_media_eagerly(attachment, composite_id))
                 await discord_log(bot, f"✅ Safely Archived seamlessly to Dashboard!", attachment.url)
-                
-                # Send the auto-deleting confirmation message in the chat (unless silent)
-                # Removed as per user request
+                saved_count += 1
             except Exception as e:
                 await discord_log(bot, f"🚨 **SQL Engine Crash on Auto-Save** `{attachment.filename}`:\n```{e}```", attachment.url)
             
@@ -372,6 +371,14 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
                     msg = await review_channel.send(content=content)
                     await msg.add_reaction("✅")
                     await msg.add_reaction("❌")
+
+    if saved_count > 0 and not silent:
+        url = get_config("album_url")
+        album_text = ""
+        if url:
+            album_text = f" View them here: **[Album](<{url}>)**"
+        media_str = "items" if saved_count > 1 else "photo/video"
+        await message.channel.send(f"{message.author.mention} ✅ successfully uploaded {saved_count} {media_str} to the vault!{album_text}", delete_after=8.0)
 
 async def handle_manual_add(interaction: discord.Interaction, message: discord.Message):
     if not message.attachments:
