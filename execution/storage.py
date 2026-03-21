@@ -26,12 +26,17 @@ def log_photo_to_db(message_id: int, channel_id: int, user_id: int, user_name: s
 
 def remove_photo_from_db(message_id: int):
     conn = get_db()
-    conn.execute("DELETE FROM photos WHERE message_id=?", (str(message_id),))
+    cursor = conn.execute("DELETE FROM photos WHERE message_id=?", (str(message_id),))
+    count = cursor.rowcount
     conn.commit()
     conn.close()
+    return count
+
 def remove_all_photos_for_message(message_id: int):
     conn = get_db()
     # Remove all attachments that share the same message ID prefix
-    conn.execute("DELETE FROM photos WHERE message_id LIKE ?", (f"{message_id}-%",))
+    cursor = conn.execute("DELETE FROM photos WHERE message_id LIKE ? OR message_id = ?", (f"{message_id}-%", str(message_id)))
+    count = cursor.rowcount
     conn.commit()
     conn.close()
+    return count

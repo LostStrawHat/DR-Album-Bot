@@ -616,16 +616,28 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
 @bot.event
 async def on_raw_message_delete(payload: discord.RawMessageDeleteEvent):
-    """Deep synchronization: if a message is deleted on Discord, purge it from the vault!"""
-    remove_all_photos_for_message(payload.message_id)
-    await discord_log(bot, f"🗑️ Synchronized deletion: Message `{payload.message_id}` vanished from Discord. Cleaned up vault entry.")
+    """Deep synchronization: if a message is deleted in the photo channel, purge its media from the vault!"""
+    photo_channel_id = get_config("photo_channel_id")
+    if not photo_channel_id or str(payload.channel_id) != photo_channel_id:
+        return
+
+    count = remove_all_photos_for_message(payload.message_id)
+    if count > 0:
+        await discord_log(bot, f"🗑️ Synchronized deletion: Message `{payload.message_id}` vanished from Discord. Cleaned up {count} vault entries.")
 
 @bot.event
 async def on_raw_bulk_message_delete(payload: discord.RawBulkMessageDeleteEvent):
-    """Deep synchronization for massive purges: handle bulk deletions efficiently."""
+    """Deep synchronization for massive purges: handle bulk deletions efficiently in the photo channel."""
+    photo_channel_id = get_config("photo_channel_id")
+    if not photo_channel_id or str(payload.channel_id) != photo_channel_id:
+        return
+
+    total_count = 0
     for message_id in payload.message_ids:
-        remove_all_photos_for_message(message_id)
-    await discord_log(bot, f"🗑️ Bulk Synchronization: Processed {len(payload.message_ids)} deleted messages. Vault is clean.")
+        total_count += remove_all_photos_for_message(message_id)
+        
+    if total_count > 0:
+        await discord_log(bot, f"🗑️ Bulk Sync: Processed {len(payload.message_ids)} deletions in #photo-channel. Cleaned up {total_count} old vault records.")
 
 if __name__ == '__main__':
     if TOKEN and TOKEN != 'your_discord_bot_token_here':
