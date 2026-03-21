@@ -13,7 +13,7 @@ A beautifully optimized, high-performance photo and video archive system for you
 ### 🛡️ Smart Archiving & Moderation
 - **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.
 - **Meme Filtering**: Integrated hashing logic to catch and discard duplicates or zero-value memes.
-- **Gallery Delete & Blacklist**: Admins can delete items directly from the gallery, which automatically wipes the cache and adds the file signature to a permanent blacklist.
+- **Gallery Delete & Blacklist**: Admins can delete items directly from the gallery with built-in confirmation dialogs, which automatically wipes the cache and adds the file signature to a permanent blacklist.
 - **Server Nicknames**: Automatically captures and synchronizes server-specific nicknames for accurate attribution.
 
 ### 🌐 Secure Public Access
