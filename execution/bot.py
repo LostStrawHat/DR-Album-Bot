@@ -605,6 +605,8 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
                     row["channel_id"] = "web-review"
 
             if row:
+                if not isinstance(row, dict):
+                    row = dict(row)
                 channel_id = row.get("channel_id") or "web-review"
                 conn.execute('''
                     INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)

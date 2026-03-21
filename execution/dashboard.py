@@ -452,6 +452,8 @@ def api_approve_photos():
                 row["channel_id"] = "web-review"
 
         if row:
+            if not isinstance(row, dict):
+                row = dict(row)
             channel_id = row.get("channel_id") or "web-review"
             # 1. Add to main photos table
             # We use a special message_id prefix to indicate it was a web-approved item
