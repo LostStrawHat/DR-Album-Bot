@@ -480,6 +480,9 @@ async def refresh_names(interaction: discord.Interaction):
                 conn.execute("UPDATE photos SET user_name = ? WHERE user_id = ?", (name, str(uid)))
                 conn.execute("UPDATE meme_cache SET user_name = ? WHERE user_id = ?", (name, str(uid)))
                 count += 1
+            
+            # Respect Discord API rate limits by waiting 0.5s per member
+            await asyncio.sleep(0.5)
         except Exception as e:
             print(f"Failed to refresh name for {uid}: {e}")
             
