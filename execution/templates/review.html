@@ -127,7 +127,7 @@
                 
                 card.innerHTML = `
                     <div class="check-indicator"></div>
-                    ${isVideo ? `<video src="${photo.cloud_url}" muted loop></video>` : `<img src="${photo.cloud_url}" loading="lazy">`}
+                    ${isVideo ? `<video src="${photo.proxy_url}" muted loop></video>` : `<img src="${photo.proxy_url}" loading="lazy">`}
                     <div class="card-footer">
                         <p><strong>${photo.user_name}</strong></p>
                         <p>${photo.file_name}</p>

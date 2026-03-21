@@ -424,11 +424,40 @@ def api_get_review_photos():
             "file_hash": p["file_hash"],
             "date_added": p["date_added"],
             "cloud_url": p["cloud_url"],
+            "proxy_url": f"/api/review/proxy/{p['file_hash']}",
             "file_name": p["file_name"],
             "user_name": p["user_name"] or "Unknown User",
             "timestamp": p["timestamp"]
         })
     return jsonify(res)
+
+@app.route("/api/review/proxy/<file_hash>")
+def proxy_review_media(file_hash):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT cloud_url, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
+    except sqlite3.OperationalError:
+        row = conn.execute("SELECT cloud_url FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
+    conn.close()
+
+    if not row:
+        return "Not found", 404
+
+    fresh_url = row["cloud_url"]
+    keys = row.keys() if hasattr(row, 'keys') else []
+    
+    if "channel_id" in keys and "original_msg_id" in keys:
+        channel_id = row["channel_id"]
+        msg_id = row["original_msg_id"]
+        att_id = row["attachment_id"] if "attachment_id" in keys else None
+        
+        if channel_id and msg_id:
+            composite_id = f"{msg_id}-{att_id}" if att_id else str(msg_id)
+            new_url = get_fresh_discord_attachment(channel_id, composite_id)
+            if new_url:
+                fresh_url = new_url
+
+    return redirect(fresh_url)
 
 @app.route("/api/review/approve", methods=["POST"])
 def api_approve_photos():
