@@ -37,7 +37,8 @@ def setup_database():
             file_name TEXT,
             user_id TEXT,
             user_name TEXT,
-            timestamp TEXT
+            timestamp TEXT,
+            channel_id TEXT
         )
     ''')
     
@@ -68,7 +69,11 @@ def setup_database():
         cursor.execute("ALTER TABLE meme_cache ADD COLUMN user_name TEXT")
         cursor.execute("ALTER TABLE meme_cache ADD COLUMN timestamp TEXT")
     except sqlite3.OperationalError:
-        # Columns already exist
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE meme_cache ADD COLUMN channel_id TEXT")
+    except sqlite3.OperationalError:
         pass
         
     conn.commit()

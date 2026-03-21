@@ -37,11 +37,13 @@ def get_db():
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # Admin password bypassed by user request for easy sharing
+        if not session.get('is_admin'):
+            return redirect("/")
         return f(*args, **kwargs)
     return decorated_function
 
 @app.route("/review")
+@admin_required
 def review_page():
     return render_template("review.html")
 
@@ -142,10 +144,13 @@ def get_fresh_discord_attachment(channel_id, composite_id):
             return None
         elif r.status_code == 429:
             retry_after = r.json().get("retry_after", 1.0)
-            print(f"Discord API 429 Rate Limit hit. Backing off for {retry_after}s...")
+            print(f"[ERROR] Discord API 429 Rate Limit hit. Backing off for {retry_after}s...")
             time.sleep(retry_after)
         else:
+            print(f"[ERROR] Discord API returned {r.status_code} for {msg_id}: {r.text}")
             break
+    
+    return None
             
     return None
 
@@ -157,7 +162,7 @@ def get_db_info(message_id):
     conn = get_db()
     # The frontend passes `{message_id}-{attachment_id}` since Discord allows multiple attachments per message.
     # We stored the same composite ID in the `message_id` column during log_photo_to_db.
-    row = conn.execute("SELECT file_name, channel_id FROM photos WHERE message_id=?", (str(message_id),)).fetchone()
+    row = conn.execute("SELECT file_name, channel_id, cloud_url FROM photos WHERE message_id=?", (str(message_id),)).fetchone()
     conn.close()
     return row
 
@@ -166,10 +171,19 @@ def ensure_local_cache(message_id, photo):
     cache_path = os.path.join(CACHE_DIR, message_id)
     if not os.path.exists(cache_path):
         print(f"[DEBUG] Cache miss for {message_id}, fetching fresh URL...")
-        fresh_url = get_fresh_discord_attachment(photo["channel_id"], message_id)
-        if not fresh_url:
-            print(f"[DEBUG] Failed to get fresh URL for {message_id}")
-            return None
+        
+        # If the channel_id is a placeholder (e.g. from a manual web add or legacy item), we can't reliably refresh via Discord API.
+        if photo["channel_id"] == "web-review" or not photo["channel_id"]:
+            fresh_url = photo["cloud_url"] if "cloud_url" in photo.keys() else None
+            if not fresh_url:
+                print(f"[DEBUG] No fetchable URL for legacy item {message_id}")
+                return None
+        else:
+            fresh_url = get_fresh_discord_attachment(photo["channel_id"], message_id)
+            if not fresh_url:
+                print(f"[DEBUG] Failed to get fresh URL for {message_id}")
+                return None
+                
         try:
             r = requests.get(fresh_url, stream=True)
             if r.status_code == 200:
@@ -188,6 +202,7 @@ def ensure_local_cache(message_id, photo):
 
 @app.route("/thumbnail/<message_id>")
 def proxy_thumbnail(message_id):
+    print(f"[DEBUG] Route called: /thumbnail/{message_id}")
     """Serves a lightweight, compressed thumbnail of the image for the gallery grid."""
     photo = get_db_info(message_id)
     if not photo:
@@ -231,9 +246,16 @@ def proxy_thumbnail(message_id):
                 img.thumbnail((300, 300), Image.Resampling.LANCZOS)
                 img.save(thumb_path, "JPEG", quality=65, optimize=True)
         
+        print(f"[DEBUG] Successfully served thumbnail for {message_id}")
         return send_file(thumb_path, mimetype='image/jpeg', max_age=31536000)
+    except FileNotFoundError as e:
+        print(f"[ERROR] Missing dependency for {message_id}: {e}")
+        # Return a fallback or 501 for missing ffmpeg?
+        if is_video:
+            return "FFmpeg is required for video thumbnails but is missing on this server.", 501
+        raise
     except Exception as e:
-        print(f"Thumbnail generation failed for {message_id}: {e}")
+        print(f"[ERROR] Thumbnail generation failed for {message_id}: {e}")
         # If FFmpeg fails (e.g. video too short), try seeking to 0
         if is_video:
             try:
@@ -249,6 +271,7 @@ def proxy_thumbnail(message_id):
 
 @app.route("/media/<message_id>")
 def proxy_media(message_id):
+    print(f"[DEBUG] Route called: /media/{message_id}")
     """Bridge Discord API with aggressive local caching and streaming Range support."""
     photo = get_db_info(message_id)
     if not photo:
@@ -427,14 +450,23 @@ def api_approve_photos():
     processed = 0
     for h in hashes:
         # Get metadata from meme_cache
-        row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
+        try:
+            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp, channel_id FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
+        except sqlite3.OperationalError:
+            # Fallback for old schemas if migration fails during runtime somehow
+            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash=?", (h,)).fetchone()
+            if row:
+                row = dict(row)
+                row["channel_id"] = "web-review"
+
         if row:
+            channel_id = row.get("channel_id") or "web-review"
             # 1. Add to main photos table
             # We use a special message_id prefix to indicate it was a web-approved item
             conn.execute('''
                 INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (f"web-{h[:12]}", "web-review", row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
+            ''', (f"web-{h[:12]}", channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
             
             # 2. Add to uploaded_cache to prevent future duplicates
             conn.execute("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)",
@@ -464,6 +496,46 @@ def api_blacklist_photos():
     conn.commit()
     conn.close()
     return jsonify({"status": "success", "processed": len(hashes)})
+
+@app.route("/api/delete", methods=["POST"])
+@admin_required
+def delete_photos():
+    data = request.json
+    ids = data.get("ids", [])
+    if not ids:
+        return jsonify({"success": False, "error": "No IDs provided"}), 400
+        
+    conn = get_db()
+    placeholders = ",".join("?" * len(ids))
+    rows = conn.execute(f"SELECT cloud_url, message_id FROM photos WHERE message_id IN ({placeholders})", ids).fetchall()
+    
+    deleted_count = 0
+    for row in rows:
+        cloud_url = row["cloud_url"]
+        msg_id = row["message_id"]
+        
+        # Delete from DB
+        conn.execute("DELETE FROM photos WHERE message_id=?", (msg_id,))
+        deleted_count += 1
+        
+        # Find hash to blacklist
+        if cloud_url:
+            hash_row = conn.execute("SELECT file_hash FROM uploaded_cache WHERE cloud_url=?", (cloud_url,)).fetchone()
+            if hash_row:
+                file_hash = hash_row["file_hash"]
+                conn.execute("INSERT OR REPLACE INTO meme_cache (file_hash) VALUES (?)", (file_hash,))
+        
+        # Delete from disk
+        cache_path = os.path.join(CACHE_DIR, msg_id)
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+        thumb_path = os.path.join(THUMB_DIR, f"{msg_id}.jpg")
+        if os.path.exists(thumb_path):
+            os.remove(thumb_path)
+                
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "deleted": deleted_count})
 
 if __name__ == "__main__":
     backfill_user_names()

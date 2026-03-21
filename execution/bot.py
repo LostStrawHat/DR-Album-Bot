@@ -174,7 +174,8 @@ class UploadSelect(discord.ui.Select):
                 
                 cloud_url = att.url
                 composite_id = f"{self.msg.id}-{att.id}"
-                log_photo_to_db(composite_id, self.msg.channel.id, self.msg.author.id, self.msg.author.display_name, cloud_url, att.filename, self.msg.created_at.isoformat())
+                author_name = getattr(self.msg.author, 'nick', None) or self.msg.author.display_name
+                log_photo_to_db(composite_id, self.msg.channel.id, self.msg.author.id, author_name, cloud_url, att.filename, self.msg.created_at.isoformat())
                 add_to_uploaded_cache(file_hash, cloud_url)
                 added_count += 1
             except Exception as e:
@@ -321,7 +322,8 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
             try:
                 cloud_url = attachment.url
                 composite_id = f"{message.id}-{attachment.id}"
-                log_photo_to_db(composite_id, message.channel.id, message.author.id, message.author.display_name, cloud_url, attachment.filename, message.created_at.isoformat())
+                author_name = getattr(message.author, 'nick', None) or message.author.display_name
+                log_photo_to_db(composite_id, message.channel.id, message.author.id, author_name, cloud_url, attachment.filename, message.created_at.isoformat())
                 add_to_uploaded_cache(file_hash, cloud_url)
                 await discord_log(bot, f"✅ Safely Archived seamlessly to Dashboard!", attachment.url)
                 
@@ -337,13 +339,15 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
             
         elif action == "REVIEW":
             # Blacklist by default unless approved, but store metadata for Web Review
+            author_name = getattr(message.author, 'nick', None) or message.author.display_name
             add_to_meme_cache(
                 file_hash, 
                 cloud_url=attachment.url, 
                 file_name=attachment.filename,
                 user_id=str(message.author.id),
-                user_name=message.author.display_name,
-                timestamp=message.created_at.isoformat()
+                user_name=author_name,
+                timestamp=message.created_at.isoformat(),
+                channel_id=str(message.channel.id)
             )
             await discord_log(bot, f"🛡️ **Auto-Blacklisted pending review**: `{attachment.filename}` (Small size/Heuristic flag).", attachment.url)
             
@@ -351,16 +355,20 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
             if review_channel_id:
                 review_channel = bot.get_channel(int(review_channel_id))
                 if review_channel:
-                    view = ReviewView(original_message=message, attachment=attachment, file_hash=file_hash, bot_instance=bot)
-                    content = f"🛡️ **Auto-Blacklisted Image - Rescue?**\nSent by: {message.author.mention}\n{attachment.url}"
-                    msg = await review_channel.send(content=content, view=view)
+                    url = get_config("album_url")
+                    review_link = f"**[Review Queue](<{url}/review>)**" if url else "the web dashboard"
                     
-                    # Auto-add reactions for fallback moderation
-                    try:
-                        await msg.add_reaction("✅")
-                        await msg.add_reaction("🚫")
-                    except:
-                        pass
+                    content = (
+                        f"🛡️ **New Item in Review Queue**\n"
+                        f"Sent by: {message.author.mention}\n"
+                        f"File: `{attachment.filename}`\n"
+                        f"Hash: `{file_hash}`\n"
+                        f"Please moderate this item on {review_link}.\n"
+                        f"{attachment.url}"
+                    )
+                    msg = await review_channel.send(content=content)
+                    await msg.add_reaction("✅")
+                    await msg.add_reaction("❌")
 
 async def handle_manual_add(interaction: discord.Interaction, message: discord.Message):
     if not message.attachments:
@@ -393,7 +401,8 @@ async def handle_manual_add(interaction: discord.Interaction, message: discord.M
             
             cloud_url = att.url
             composite_id = f"{message.id}-{att.id}"
-            log_photo_to_db(composite_id, message.channel.id, message.author.id, message.author.display_name, cloud_url, att.filename, message.created_at.isoformat())
+            author_name = getattr(message.author, 'nick', None) or message.author.display_name
+            log_photo_to_db(composite_id, message.channel.id, message.author.id, author_name, cloud_url, att.filename, message.created_at.isoformat())
             add_to_uploaded_cache(file_hash, cloud_url)
             await interaction.followup.send(f"✅ Successfully forced `{att.filename}` into the Dashboard!", ephemeral=True)
         except Exception as e:
@@ -449,15 +458,18 @@ async def refresh_names(interaction: discord.Interaction):
     for row in users:
         uid = int(row[0])
         try:
-            # Try to get member from the current guild for nickname
-            user = interaction.guild.get_member(uid)
-            if not user:
-                # Fallback to global user lookup
+            user = None
+            try:
+                # Force an API call instead of relying on the local intent cache
+                user = await interaction.guild.fetch_member(uid)
+            except discord.NotFound:
+                # Fallback to global user lookup if they left the server
                 user = await bot.fetch_user(uid)
             
             if user:
-                name = getattr(user, 'display_name', user.name)
+                name = getattr(user, 'nick', None) or getattr(user, 'display_name', None) or user.name
                 conn.execute("UPDATE photos SET user_name = ? WHERE user_id = ?", (name, str(uid)))
+                conn.execute("UPDATE meme_cache SET user_name = ? WHERE user_id = ?", (name, str(uid)))
                 count += 1
         except Exception as e:
             print(f"Failed to refresh name for {uid}: {e}")
@@ -558,42 +570,75 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     if not review_channel_id or payload.channel_id != int(review_channel_id):
         return
         
-    if str(payload.emoji) not in ["✅", "🚫"]:
+    emoji = str(payload.emoji)
+    if emoji not in ["✅", "❌", "🚫"]:
         return
         
     channel = bot.get_channel(payload.channel_id)
-    message = await channel.fetch_message(payload.message_id)
-    
-    if "🛡️ **Auto-Blacklisted Image - Rescue?**" not in message.content:
+    if not channel:
         return
         
-    # Extract URL and re-process (simulating the button click)
-    lines = message.content.split("\n")
-    url = lines[-1]
-    
     try:
-        filename = url.split("/")[-1].split("?")[0]
-        r = requests.get(url)
-        if r.status_code == 200:
-            file_hash = hashlib.sha256(r.content).hexdigest()
-            filename = url.split("/")[-1].split("?")[0]
-            
-            if str(payload.emoji) == "✅":
-                remove_from_meme_cache(file_hash)
-                composite_id = f"react-{message.id}"
-                log_photo_to_db(composite_id, payload.channel_id, payload.user_id, "Approved via React", url, filename, message.created_at.isoformat())
-                add_to_uploaded_cache(file_hash, url)
-                await message.edit(content=f"✅ **Approved via Reaction**\n{url}", view=None)
-            else:
-                add_to_meme_cache(file_hash)
-                await message.edit(content=f"🚫 **Blacklisted via Reaction**\n{url}", view=None)
+        message = await channel.fetch_message(payload.message_id)
+    except:
+        return
+        
+    if message.author.id != bot.user.id or "New Item in Review Queue" not in message.content:
+        return
+        
+    import re
+    match = re.search(r'Hash:\s*`([a-f0-9]+)`', message.content)
+    if not match:
+        return
+        
+    file_hash = match.group(1)
+    
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    try:
+        if emoji == "✅":
+            row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp, channel_id FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
+            if not row:
+                row = conn.execute("SELECT cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
+                if row:
+                    row = dict(row)
+                    row["channel_id"] = "web-review"
+
+            if row:
+                channel_id = row.get("channel_id") or "web-review"
+                conn.execute('''
+                    INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (f"web-{file_hash[:12]}", channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
                 
-            try:
-                await message.clear_reactions()
-            except:
-                pass
+                conn.execute("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)",
+                             (file_hash, row["cloud_url"], row["timestamp"]))
+                
+                conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (file_hash,))
+                conn.commit()
+                if row['file_name']:
+                    await channel.send(f"✅ Approved and added `{row['file_name']}` to vault.", delete_after=5.0)
+                else:
+                    await channel.send(f"✅ Approved item and added to vault.", delete_after=5.0)
+            
+        elif emoji in ["❌", "🚫"]:
+            row = conn.execute("SELECT file_name FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
+            file_name = row["file_name"] if row and row["file_name"] else "Item"
+            
+            conn.execute("UPDATE meme_cache SET cloud_url=NULL, file_name=NULL, user_id=NULL, user_name=NULL, timestamp=NULL WHERE file_hash=?", (file_hash,))
+            conn.commit()
+            
+            await channel.send(f"❌ Discarded `{file_name}`.", delete_after=5.0)
+            
     except Exception as e:
-        print(f"Error in reaction moderation: {e}")
+        print(f"Error handling reaction moderation: {e}")
+    finally:
+        conn.close()
+        
+    try:
+        await message.delete()
+    except:
+        pass
 
 if __name__ == '__main__':
     if TOKEN and TOKEN != 'your_discord_bot_token_here':

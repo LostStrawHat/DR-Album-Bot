@@ -9,10 +9,11 @@ A beautifully optimized, high-performance photo and video archive system for you
 - **FFmpeg Posters**: Extracts frame previews from videos to save bandwidth in the grid view.
 - **Lazy Loading**: Zero video data is downloaded until you hover or click, making the UI feel extremely snappy.
 
-### 🛡️ Smart Archiving
+### 🛡️ Smart Archiving & Moderation
+- **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.
 - **Meme Filtering**: Integrated hashing logic to catch and discard duplicates or zero-value memes.
-- **Auto-Routing**: Automatically handles multi-attachment messages and splits them into individual vault entries.
-- **Local Persistence**: Uses SQLite with WAL (Write-Ahead Logging) for high-concurrency performance and reliability.
+- **Gallery Delete & Blacklist**: Admins can delete items directly from the gallery, which automatically wipes the cache and adds the file signature to a permanent blacklist.
+- **Server Nicknames**: Automatically captures and synchronizes server-specific nicknames for accurate attribution.
 
 ### 🌐 Secure Public Access
 - **Cloudflare Tunnels**: No port forwarding or static IP required.
@@ -24,7 +25,7 @@ A beautifully optimized, high-performance photo and video archive system for you
 
 ### 1. Prerequisites
 - **Python 3.10+**
-- **FFmpeg** (required for video posters): `brew install ffmpeg` (Mac) or `sudo apt install ffmpeg` (Linux)
+- **FFmpeg** (required for video posters and thumbnails): `brew install ffmpeg` (Mac) or `sudo apt install ffmpeg` (Linux).
 - **Cloudflare Tunnel binary** (`cloudflared_local` is provided for Mac, download ARM for RPi).
 
 ### 2. Environment Configuration
@@ -50,13 +51,14 @@ sh run_local_public.sh
 
 - `/album`: Get the latest public link to the vault.
 - `/set_photo_channel`: Bind the bot to a specific channel.
+- `/refresh_names`: Re-poll the Discord API to update all stored names to current server nicknames.
 - `/reset_database`: Wipe all records (Admins only).
 
 ---
 
 ## 📂 Project Structure
-- `execution/bot.py`: The core Discord logic.
-- `execution/dashboard.py`: The Flask web server.
+- `execution/bot.py`: The core Discord logic and reaction listeners.
+- `execution/dashboard.py`: The Flask web server with Admin moderation tools.
 - `execution/static/`: Premium Vanilla CSS & JS frontend.
 - `execution/cache/`: Local media and thumbnail storage.
 

@@ -59,12 +59,14 @@ def start_dashboard():
     os.makedirs(os.path.dirname(DASHBOARD_PID_FILE), exist_ok=True)
     cmd = [PYTHON_PATH, os.path.join(WORKSPACE_ROOT, 'execution', 'dashboard.py')]
     
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        preexec_fn=os.setsid
-    )
+    log_file = os.path.join(WORKSPACE_ROOT, '.tmp', 'dashboard.log')
+    with open(log_file, 'a') as f:
+        process = subprocess.Popen(
+            cmd,
+            stdout=f,
+            stderr=f,
+            preexec_fn=os.setsid
+        )
     
     with open(DASHBOARD_PID_FILE, 'w') as f:
         f.write(str(process.pid))

@@ -19,15 +19,15 @@ def is_known_meme(file_hash: str) -> bool:
     conn.close()
     return result is not None
 
-def add_to_meme_cache(file_hash: str, cloud_url: str = None, file_name: str = None, user_id: str = None, user_name: str = None, timestamp: str = None):
+def add_to_meme_cache(file_hash: str, cloud_url: str = None, file_name: str = None, user_id: str = None, user_name: str = None, timestamp: str = None, channel_id: str = None):
     """Add a photo's metadata to the review/blacklist queue."""
     if not file_hash: return
     conn = get_db()
     conn.execute('''
         INSERT OR REPLACE INTO meme_cache 
-        (file_hash, date_added, cloud_url, file_name, user_id, user_name, timestamp) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (file_hash, datetime.datetime.now().isoformat(), cloud_url, file_name, user_id, user_name, timestamp))
+        (file_hash, date_added, cloud_url, file_name, user_id, user_name, timestamp, channel_id) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (file_hash, datetime.datetime.now().isoformat(), cloud_url, file_name, user_id, user_name, timestamp, channel_id))
     conn.commit()
     conn.close()
 
@@ -83,7 +83,14 @@ async def process_attachment(attachment) -> tuple[str, str]:
     file_hash = hashlib.sha256(image_bytes).hexdigest()
     
     if is_known_meme(file_hash):
-        return ("DISCARD", file_hash)
+        # Check if it has metadata for the web dashboard
+        conn = get_db()
+        cursor = conn.execute("SELECT cloud_url FROM meme_cache WHERE file_hash=?", (file_hash,))
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]: # Has cloud_url, definitely a meme
+            return ("DISCARD", file_hash)
+        # If it's a legacy entry (no cloud_url), we fall through to the size-check logic below
         
     if is_known_upload(file_hash):
         return ("DUPLICATE", file_hash)
