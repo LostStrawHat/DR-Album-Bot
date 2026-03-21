@@ -173,7 +173,7 @@ function renderGallery() {
             discordBtn.className = 'discord-jump-btn';
             discordBtn.href = p.discord_url;
             discordBtn.target = '_blank';
-            discordBtn.innerHTML = '🔗 Discord';
+            discordBtn.innerHTML = `<svg viewBox="0 0 127.14 96.36" width="16" height="16" fill="currentColor"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.06,72.06,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.71,32.65-1.82,56.6.48,80.21a105.73,105.73,0,0,0,32.22,16.15,77.7,77.7,0,0,0,7.37-12,67.65,67.65,0,0,1-10.51-5c.87-.64,1.74-1.31,2.57-2a78.58,78.58,0,0,0,63.56,0c.84.69,1.7,1.36,2.56,2a67.59,67.59,0,0,1-10.51,5,77.66,77.66,0,0,0,7.37,12,105.27,105.27,0,0,0,32.25-16.15C130,51,123.63,27.15,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>`;
             discordBtn.title = 'View original message in Discord';
             discordBtn.addEventListener('click', (e) => e.stopPropagation());
             card.appendChild(discordBtn);
@@ -423,7 +423,8 @@ function openLightbox(url, isVideo, discordUrl = null) {
         discordBtn.className = 'lightbox-discord-btn';
         discordBtn.href = discordUrl;
         discordBtn.target = '_blank';
-        discordBtn.innerHTML = 'View inside Discord';
+        discordBtn.innerHTML = `<svg viewBox="0 0 127.14 96.36" width="24" height="24" fill="currentColor"><path d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.06,72.06,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.71,32.65-1.82,56.6.48,80.21a105.73,105.73,0,0,0,32.22,16.15,77.7,77.7,0,0,0,7.37-12,67.65,67.65,0,0,1-10.51-5c.87-.64,1.74-1.31,2.57-2a78.58,78.58,0,0,0,63.56,0c.84.69,1.7,1.36,2.56,2a67.59,67.59,0,0,1-10.51,5,77.66,77.66,0,0,0,7.37,12,105.27,105.27,0,0,0,32.25-16.15C130,51,123.63,27.15,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/></svg>`;
+        discordBtn.title = 'View inside Discord';
         lightbox.appendChild(discordBtn);
     }
 
