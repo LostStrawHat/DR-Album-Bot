@@ -531,7 +531,7 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
 }
 
 .admin-only {
-    display: none !important; /* Managed via JS for authenticated sessions */
+    display: none; /* Managed via JS for authenticated sessions */
 }
 
 .filter-group-bubble {
