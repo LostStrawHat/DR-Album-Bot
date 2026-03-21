@@ -334,12 +334,7 @@ async def handle_media_routing(message: discord.Message, silent: bool = False):
                 await discord_log(bot, f"✅ Safely Archived seamlessly to Dashboard!", attachment.url)
                 
                 # Send the auto-deleting confirmation message in the chat (unless silent)
-                if not silent:
-                    url = get_config("album_url")
-                    album_text = ""
-                    if url:
-                        album_text = f" View them here: **[Album](<{url}>)**"
-                    await message.channel.send(f"{message.author.mention} ✅ successfully uploaded your photo/video(s) to the vault!{album_text}", delete_after=8.0)
+                # Removed as per user request
             except Exception as e:
                 await discord_log(bot, f"🚨 **SQL Engine Crash on Auto-Save** `{attachment.filename}`:\n```{e}```", attachment.url)
             

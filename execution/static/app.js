@@ -229,7 +229,6 @@ function setupEventListeners() {
     document.getElementById('range-toggle').addEventListener('click', () => {
         isRangeMode = !isRangeMode;
         document.getElementById('end-date-group').classList.toggle('active', isRangeMode);
-        document.getElementById('range-toggle').querySelector('span').textContent = isRangeMode ? "Single Day" : "Range";
         renderGallery();
     });
 
