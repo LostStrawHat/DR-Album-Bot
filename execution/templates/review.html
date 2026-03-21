@@ -189,7 +189,11 @@
         }
 
         document.getElementById('approve-selected-btn').onclick = () => processBulk('approve');
-        document.getElementById('blacklist-selected-btn').onclick = () => processBulk('blacklist');
+        document.getElementById('blacklist-selected-btn').onclick = () => {
+            if (confirm(`Are you sure you want to blacklist ${selectedHashes.size} item(s)?`)) {
+                processBulk('blacklist');
+            }
+        };
 
         // Initial Load
         loadReviewQueue();

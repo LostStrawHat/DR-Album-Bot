@@ -22,3 +22,4 @@ A localized Discord bot that passively archives hangout photos and videos to loc
 - **Out Of Memory (OOM) Protection**: Overhauled the `/api/download_bulk` streaming logic to lazily write chunk data to a disk ZIP file, entirely eliminating server RAM exhaustion during massive video multi-select exports.
 - **Browser Connection Limit Protection**: Videos in the review queue now default to poster-only loading with `preload="none"`, resolving HTTP connection stalling that occurred when rendering dozens of video tags concurrently.
 - **Security Hard-Failures**: Dashboard natively enforces strict validation of `.env` presence. The deployment crashes securely if a custom `ADMIN_PASSWORD` or `SECRET_KEY` isn't injected upon boot.
+- **Moderation Safety Checks**: Replaced immediate bulk actions with interactive confirmation dialogs for destructive moderation tasks (Blacklisting/Deleting) to prevent accidental archive wiping during high-volume triage.
