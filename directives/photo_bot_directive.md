@@ -25,6 +25,6 @@ A localized Discord bot that passively archives hangout photos and videos to loc
 
 ## New Features & UI Optimizations
 - **Gallery Delete & Blacklist**: Admins can wipe items from the dashboard. Deletion automatically converts the file hash into a permanent blacklist entry, preventing re-upload.
-- **FFmpeg Fallback**: Thumbnail generation for videos requires `ffmpeg`. The code includes a graceful fallback that shows a broken icon/info message if the dependency is missing, without crashing the server.
+- **OpenCV Video Thumbnails**: Since FFmpeg was missing locally, we successfully transitioned video poster generation to `OpenCV`. It extracts the 1s frame, scales it to 300px while maintaining the aspect ratio, and serves it as a lightweight JPEG.
 - **Mobile Density**: Implementation of a 2-column gallery grid on mobile devices (via `repeat(2, 1fr)`) and reduced container padding to maximize information density.
 - **Sticky UX**: The filter bar now uses `position: sticky` to remain accessible at the top of the screen during scrolling.

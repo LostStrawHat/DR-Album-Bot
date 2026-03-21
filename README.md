@@ -6,7 +6,7 @@ A beautifully optimized, high-performance photo and video archive system for you
 
 ### 🚀 Performance
 - **Pillow Compression**: Automatically generates lightweight thumbnails for instant gallery loading.
-- **FFmpeg Posters**: Extracts frame previews from videos to save bandwidth in the grid view.
+- **OpenCV Video Posters**: Robust frame-extraction for videos (fallback from locally missing FFmpeg) ensuring consistent gallery previews.
 - **Lazy Loading**: Zero video data is downloaded until you hover or click, making the UI feel extremely snappy.
 
 ### 🛡️ Smart Archiving & Moderation
@@ -25,7 +25,7 @@ A beautifully optimized, high-performance photo and video archive system for you
 
 ### 1. Prerequisites
 - **Python 3.10+**
-- **FFmpeg** (required for video posters and thumbnails): `brew install ffmpeg` (Mac) or `sudo apt install ffmpeg` (Linux).
+- **OpenCV** (required for video posters): automatically installed in the project `venv`. Fallback is used if FFmpeg is missing.
 - **Cloudflare Tunnel binary** (`cloudflared_local` is provided for Mac, download ARM for RPi).
 
 ### 2. Environment Configuration

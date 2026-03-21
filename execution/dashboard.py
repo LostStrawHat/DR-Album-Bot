@@ -225,17 +225,23 @@ def proxy_thumbnail(message_id):
     # 3. Generate the thumbnail on the fly
     try:
         if is_video:
-            # Use FFmpeg to extract a frame at 1s (or 0s if it fails)
-            # -ss 1.0 (seek to 1s) -i (input) -frames:v 1 (one frame) -q:v 2 (high quality jpg)
-            cmd = [
-                'ffmpeg', '-y', 
-                '-ss', '1.0', 
-                '-i', original_cache_path, 
-                '-frames:v', '1', 
-                '-q:v', '4', 
-                thumb_path
-            ]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            import cv2
+            cap = cv2.VideoCapture(original_cache_path)
+            cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
+            success, frame = cap.read()
+            if not success:
+                cap.set(cv2.CAP_PROP_POS_MSEC, 0)
+                success, frame = cap.read()
+            cap.release()
+            
+            if success:
+                height, width = frame.shape[:2]
+                scale = 300.0 / max(height, width)
+                if scale < 1.0:
+                    frame = cv2.resize(frame, (int(width * scale), int(height * scale)), interpolation=cv2.INTER_AREA)
+                cv2.imwrite(thumb_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 65])
+            else:
+                raise Exception("Failed to extract frame with cv2")
         else:
             with Image.open(original_cache_path) as img:
                 # Convert to RGB if necessary (e.g. for PNGs with transparency)
@@ -248,22 +254,8 @@ def proxy_thumbnail(message_id):
         
         print(f"[DEBUG] Successfully served thumbnail for {message_id}")
         return send_file(thumb_path, mimetype='image/jpeg', max_age=31536000)
-    except FileNotFoundError as e:
-        print(f"[ERROR] Missing dependency for {message_id}: {e}")
-        # Return a fallback or 501 for missing ffmpeg?
-        if is_video:
-            return "FFmpeg is required for video thumbnails but is missing on this server.", 501
-        raise
     except Exception as e:
         print(f"[ERROR] Thumbnail generation failed for {message_id}: {e}")
-        # If FFmpeg fails (e.g. video too short), try seeking to 0
-        if is_video:
-            try:
-                cmd_fallback = ['ffmpeg', '-y', '-i', original_cache_path, '-frames:v', '1', '-q:v', '4', thumb_path]
-                subprocess.run(cmd_fallback, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                return send_file(thumb_path, mimetype='image/jpeg', max_age=31536000)
-            except:
-                pass
         
         # Final graceful fallback: serve original
         return redirect(f"/media/{message_id}")
