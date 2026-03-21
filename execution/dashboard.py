@@ -79,7 +79,10 @@ def auth_status():
 def api_get_photos():
     conn = get_db()
     # Explicitly ORDER BY original discord timestamp instead of archival order (ROWID)
-    photos = conn.execute("SELECT message_id, user_id, user_name, cloud_url, file_name, timestamp, ROWID as id FROM photos ORDER BY timestamp DESC").fetchall()
+    photos = conn.execute("SELECT message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp, ROWID as id FROM photos ORDER BY timestamp DESC").fetchall()
+    
+    guild_row = conn.execute("SELECT value FROM config WHERE key='guild_id'").fetchone()
+    guild_id = guild_row["value"] if guild_row else None
     conn.close()
     
     res = []
@@ -87,6 +90,14 @@ def api_get_photos():
         raw_ts = p["timestamp"] or ""
         # Dashboard displays the first 10 chars (YYYY-MM-DD) for simplicity
         date_only = raw_ts[:10] if raw_ts else "Unknown"
+        
+        discord_url = ""
+        msg_id_str = str(p["message_id"])
+        base_msg_id = msg_id_str.split("-")[0]
+        
+        if guild_id and p["channel_id"] and p["channel_id"] != "web-review":
+            discord_url = f"https://discord.com/channels/{guild_id}/{p['channel_id']}/{base_msg_id}"
+            
         res.append({
             "id": p["message_id"],
             "user_id": p["user_id"],
@@ -95,7 +106,8 @@ def api_get_photos():
             "sent_date": date_only,
             "sent_timestamp": raw_ts,
             "proxy_url": f"/media/{p['message_id']}",
-            "is_video": p["file_name"].lower().endswith(('.mp4', '.mov'))
+            "is_video": p["file_name"].lower().endswith(('.mp4', '.mov')),
+            "discord_url": discord_url
         })
     return jsonify(res)
 

@@ -150,7 +150,7 @@ function renderGallery() {
         media.style.cursor = "zoom-in";
         media.addEventListener('click', (e) => {
             e.stopPropagation();
-            openLightbox(p.proxy_url, p.is_video);
+            openLightbox(p.proxy_url, p.is_video, p.discord_url);
         });
 
         const footer = document.createElement('div');
@@ -167,6 +167,18 @@ function renderGallery() {
 
         card.appendChild(media);
         card.appendChild(check);
+        
+        if (p.discord_url) {
+            const discordBtn = document.createElement('a');
+            discordBtn.className = 'discord-jump-btn';
+            discordBtn.href = p.discord_url;
+            discordBtn.target = '_blank';
+            discordBtn.innerHTML = '🔗 Discord';
+            discordBtn.title = 'View original message in Discord';
+            discordBtn.addEventListener('click', (e) => e.stopPropagation());
+            card.appendChild(discordBtn);
+        }
+
         card.appendChild(footer);
         
         card.addEventListener('click', () => toggleSelect(p.id, card));
@@ -380,12 +392,14 @@ function setupEventListeners() {
     });
 }
 
-function openLightbox(url, isVideo) {
+function openLightbox(url, isVideo, discordUrl = null) {
     const lightbox = document.getElementById('lightbox');
     
     // Clear old visual inside lightbox
     let oldContent = lightbox.querySelector('.lightbox-content');
     if (oldContent) oldContent.remove();
+    let oldDiscordBtn = lightbox.querySelector('.lightbox-discord-btn');
+    if (oldDiscordBtn) oldDiscordBtn.remove();
     
     let content;
     if (isVideo) {
@@ -403,6 +417,16 @@ function openLightbox(url, isVideo) {
     }
     
     lightbox.appendChild(content);
+
+    if (discordUrl) {
+        const discordBtn = document.createElement('a');
+        discordBtn.className = 'lightbox-discord-btn';
+        discordBtn.href = discordUrl;
+        discordBtn.target = '_blank';
+        discordBtn.innerHTML = 'View inside Discord';
+        lightbox.appendChild(discordBtn);
+    }
+
     lightbox.classList.add('active');
 }
 
