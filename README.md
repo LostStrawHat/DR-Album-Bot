@@ -72,3 +72,11 @@ sh run_local_public.sh
 
 ---
 *Built with ❤️ for memories that last.*
+
+## 🚀 Future Roadmap (10X improvements)
+Planned features to keep the vault at the cutting edge:
+- **⚡ Real-Time Live Feed**: Instant gallery updates via SSE.
+- **👁️ Perceptual Deduplication**: Visual fingerprinting (phash) to detect similar media.
+- **📅 Automated "Events"**: Smart grouping of photos by time proximity.
+- **📱 PWA Support**: Dedicated native-feel app on mobile.
+- **🧠 AI Semantic Search**: Find photos by content (e.g., "dog," "beach").

@@ -29,3 +29,9 @@ A localized Discord bot that passively archives hangout photos and videos to loc
 - **Event Bubbling & Stop Propagation**: Refined JS listeners in `app.js` to ensure that functional overlays (sharing, jumping, selection) do not unintentionally trigger parent container events (lightbox opening), creating a much cleaner "desktop-first" desktop feel.
 - **Infinite Scroll Pagination**: Implemented `limit` and `offset` support in `dashboard.py` and `IntersectionObserver`-style infinite scrolling in `app.js`. This prevents OOM and browser hangs by only fetching and rendering 40 items at a time, ensuring the vault scales to thousands of photos seamlessly.
 - **Connection Pooling & API Efficiency**: Refactored `dashboard.py` to utilize a persistent `requests.Session`. This reuses TCP connections for Discord API and CDN requests, significantly reducing latency and overhead during high-volume media browsing.
+
+## 🌅 Future Architecture & Roadmap
+We intend to implement these 10X improvements to facilitate massive multi-guild scaling and UX superiority:
+- **SSE-Based Heartbeat**: A lightweight Server-Sent Events (SSE) system in `dashboard.py` to "push" new approved attachment IDs to the frontend for zero-refresh gallery updates.
+- **Perceptual Fingerprinting**: Moving beyond SHA256 bytes-matching to image-context hashing (`phash`) in `filter_logic.py`, ensuring visual duplicates (e.g., compressed copies) are deduplicated.
+- **Temporal Event Clustering**: An algorithmic layer to group photos chronologically into "Events" in the SQL layer for more intuitive memory navigation.
