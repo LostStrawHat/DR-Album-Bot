@@ -127,20 +127,32 @@ function renderGallery() {
         let media;
         if (p.is_video) {
             media = document.createElement('video');
-            media.src = p.proxy_url;
+            // Optimization: Don't set src immediately for grid videos to save bandwidth.
+            // Only set src and play on hover.
+            media.dataset.src = p.proxy_url;
             media.poster = `/thumbnail/${p.id}`;
             media.muted = true;
             media.loop = true;
-            media.autoplay = true;
-            media.preload = "auto"; 
+            media.preload = "none"; 
             media.playsInline = true;
             
-            // Critical for iOS Safari and strict browsers (e.g. Brave) which ignore JS properties 
-            // and require raw HTML attributes to grant silent autoplay permissions.
+            // Critical for iOS Safari and strict browsers
             media.setAttribute('muted', '');
             media.setAttribute('loop', '');
-            media.setAttribute('autoplay', '');
             media.setAttribute('playsinline', '');
+
+            card.addEventListener('mouseenter', () => {
+                if (!media.src || media.src === "") {
+                    media.src = media.dataset.src;
+                }
+                media.play().catch(() => {});
+            });
+            card.addEventListener('mouseleave', () => {
+                media.pause();
+                // To truly free up bandwidth, we can clear the src on leave, 
+                // but that might cause re-flicker on every hover.
+                // For now, preload="none" and manual play is enough to stop initial flood.
+            });
         } else {
             media = document.createElement('img');
             media.src = `/thumbnail/${p.id}`;

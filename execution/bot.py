@@ -229,9 +229,6 @@ class PhotoBotClient(commands.Bot):
 
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
-        # Store guild_id so the dashboard backfill can resolve server nicknames
-        if self.guilds:
-            set_config("guild_id", str(self.guilds[0].id))
 
 bot = PhotoBotClient()
 
@@ -256,6 +253,7 @@ async def setup_server(interaction: discord.Interaction):
         
         set_config("review_channel_id", str(admin_queue.id))
         set_config("log_channel_id", str(bot_logs.id))
+        set_config("guild_id", str(guild.id))
         
         await interaction.followup.send(f"✅ Created {admin_queue.mention} and {bot_logs.mention} privately! Run `/set_photo_channel` to tell me where to listen next.")
     except discord.Forbidden:
@@ -286,6 +284,7 @@ async def reset_database(interaction: discord.Interaction):
 @app_commands.describe(channel="The channel to listen to")
 async def set_photo_channel(interaction: discord.Interaction, channel: discord.TextChannel):
     set_config("photo_channel_id", str(channel.id))
+    set_config("guild_id", str(channel.guild.id))
     await interaction.response.send_message(f"Photo channel bound to {channel.mention}.", ephemeral=True)
 
 

@@ -31,6 +31,10 @@ def setup_database():
         )
     ''')
     
+    # Indexes for performance
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_timestamp ON photos(timestamp DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_photos_message_id ON photos(message_id)")
+    
     # Stores fingerprints of known memes or items pending review
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS meme_cache (
