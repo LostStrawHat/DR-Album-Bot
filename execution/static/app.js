@@ -2,6 +2,7 @@ let allPhotos = [];
 let selectedIds = new Set();
 let isRangeMode = false;
 let isAdmin = false;
+let videoObserver;
 
 document.addEventListener("DOMContentLoaded", async () => {
     // Glassmorphism Spotlight Engine
@@ -18,11 +19,34 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
     }
 
+    initVideoObserver();
     await checkAuth();
     await loadPhotos();
     await loadAuthors();
     setupEventListeners();
 });
+
+function initVideoObserver() {
+    videoObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            const video = entry.target;
+            if (entry.isIntersecting) {
+                // Video enters the screen
+                if (!video.src || video.src === "") {
+                    video.src = video.dataset.src;
+                }
+                video.play().catch(() => {});
+            } else {
+                // Video leaves the screen
+                video.pause();
+                // We keep the src so it doesn't flicker if scrolled back quickly,
+                // but we pause to save CPU/Battery.
+            }
+        });
+    }, {
+        threshold: 0.5 // Trigger when at least 50% visible
+    });
+}
 
 async function checkAuth() {
     try {
@@ -136,23 +160,12 @@ function renderGallery() {
             media.preload = "none"; 
             media.playsInline = true;
             
-            // Critical for iOS Safari and strict browsers
             media.setAttribute('muted', '');
             media.setAttribute('loop', '');
             media.setAttribute('playsinline', '');
 
-            card.addEventListener('mouseenter', () => {
-                if (!media.src || media.src === "") {
-                    media.src = media.dataset.src;
-                }
-                media.play().catch(() => {});
-            });
-            card.addEventListener('mouseleave', () => {
-                media.pause();
-                // To truly free up bandwidth, we can clear the src on leave, 
-                // but that might cause re-flicker on every hover.
-                // For now, preload="none" and manual play is enough to stop initial flood.
-            });
+            // Observe for scroll-to-play
+            videoObserver.observe(media);
         } else {
             media = document.createElement('img');
             media.src = `/thumbnail/${p.id}`;
