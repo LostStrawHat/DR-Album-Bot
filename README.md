@@ -12,8 +12,10 @@ A beautifully optimized, high-performance photo and video archive system for you
 
 ### 🛡️ Smart Archiving & Moderation
 - **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.
-- **Discord Jump Links**: Quickly view the original message context inside the Discord application directly from the dashboard using the "Discord" button!
+- **Discord Jump Links**: Quickly view the original message context inside the Discord application directly from the dashboard using the "Discord" icon.
+- **Direct Link Sharing**: Copy permanent, absolute media URLs to your clipboard for sharing across all platforms—even if the original Discord attachment expires.
 - **Meme Filtering**: Integrated hashing logic to catch and discard duplicates or zero-value memes.
+- **Local-First Reliability**: All approved media is cached locally on your machine, ensuring the vault stays alive and healthy regardless of Discord's security rotations.
 - **Gallery Delete & Blacklist**: Admins can delete items directly from the gallery with built-in confirmation dialogs, which automatically wipes the cache and adds the file signature to a permanent blacklist.
 - **Server Nicknames**: Automatically captures and synchronizes server-specific nicknames for accurate attribution.
 

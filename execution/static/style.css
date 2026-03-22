@@ -342,6 +342,36 @@ select {
     box-shadow: 0 6px 16px rgba(88, 101, 242, 0.5);
 }
 
+.copy-link-btn {
+    position: absolute;
+    top: 15px;
+    left: 55px; /* Spaced from discord btn */
+    background: rgba(30, 41, 59, 0.85);
+    color: white;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    z-index: 10;
+    opacity: 0;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.media-card:hover .copy-link-btn {
+    opacity: 1;
+}
+
+.copy-link-btn:hover {
+    background: var(--accent);
+    color: var(--bg-dark);
+    transform: translateY(-2px);
+}
+
 input[type="date"] {
     background: transparent;
     color: white;
@@ -488,6 +518,63 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
     background: #5865F2;
     transform: translateY(-3px);
     box-shadow: 0 15px 40px rgba(88, 101, 242, 0.6);
+}
+
+.lightbox-copy-btn {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(35px); /* Offset from center to right */
+    background: rgba(30, 41, 59, 0.9);
+    color: white !important;
+    width: 54px;
+    height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+}
+
+.lightbox-copy-btn:hover {
+    background: var(--accent);
+    color: var(--bg-dark) !important;
+    transform: translateX(35px) translateY(-3px);
+}
+
+/* Adjust discord btn to have offset to left */
+.lightbox-discord-btn {
+    transform: translateX(-35px);
+}
+
+.lightbox-discord-btn:hover {
+    transform: translateX(-35px) translateY(-3px);
+}
+
+/* Toast Notification */
+.toast-notification {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(100px);
+    background: var(--accent);
+    color: var(--bg-dark);
+    padding: 0.75rem 1.5rem;
+    border-radius: 50px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    z-index: 10001;
+    box-shadow: 0 10px 25px rgba(96, 165, 250, 0.4);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    pointer-events: none;
+}
+
+.toast-notification.show {
+    transform: translateX(-50%) translateY(0);
 }
 
 /* Administrative Management Styles */
@@ -705,5 +792,15 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
         opacity: 1;
         top: 10px;
         left: 10px;
+    }
+
+    .copy-link-btn {
+        opacity: 1;
+        top: 10px;
+        left: 50px;
+    }
+
+    .lightbox-discord-btn, .lightbox-copy-btn {
+        bottom: 20px;
     }
 }

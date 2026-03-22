@@ -179,11 +179,52 @@ function renderGallery() {
             card.appendChild(discordBtn);
         }
 
+        // Add Copy Link Button
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'copy-link-btn';
+        copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+        copyBtn.title = 'Copy direct media link';
+        copyBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            copyToClipboard(p.proxy_url);
+        });
+        card.appendChild(copyBtn);
+
         card.appendChild(footer);
         
-        card.addEventListener('click', () => toggleSelect(p.id, card));
+        card.addEventListener('click', (e) => {
+            // Only open lightbox if we didn't click the buttons or indicator
+            if (e.target.closest('.discord-jump-btn') || e.target.closest('.copy-link-btn') || e.target.closest('.check-indicator')) return;
+            toggleSelect(p.id, card);
+        });
         gallery.appendChild(card);
     });
+}
+
+function copyToClipboard(text) {
+    // Ensure relative paths become absolute URLs for sharing
+    let fullUrl = text;
+    if (text.startsWith('/')) {
+        fullUrl = window.location.origin + text;
+    }
+    
+    navigator.clipboard.writeText(fullUrl).then(() => {
+        showToast("Link copied to clipboard!");
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+    });
+}
+
+function showToast(message) {
+    const toast = document.createElement('div');
+    toast.className = 'toast-notification';
+    toast.innerText = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.classList.add('show'), 100);
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
 }
 
 function toggleSelect(id, cardElement) {
@@ -400,6 +441,8 @@ function openLightbox(url, isVideo, discordUrl = null) {
     if (oldContent) oldContent.remove();
     let oldDiscordBtn = lightbox.querySelector('.lightbox-discord-btn');
     if (oldDiscordBtn) oldDiscordBtn.remove();
+    let oldCopyBtn = lightbox.querySelector('.lightbox-copy-btn');
+    if (oldCopyBtn) oldCopyBtn.remove();
     
     let content;
     if (isVideo) {
@@ -427,6 +470,16 @@ function openLightbox(url, isVideo, discordUrl = null) {
         discordBtn.title = 'View inside Discord';
         lightbox.appendChild(discordBtn);
     }
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'lightbox-copy-btn';
+    copyBtn.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>';
+    copyBtn.title = 'Copy direct link';
+    copyBtn.onclick = (e) => {
+        e.stopPropagation();
+        copyToClipboard(url);
+    };
+    lightbox.appendChild(copyBtn);
 
     lightbox.classList.add('active');
 }
