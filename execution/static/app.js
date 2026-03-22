@@ -148,10 +148,6 @@ function renderGallery() {
         }
         
         media.style.cursor = "zoom-in";
-        media.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openLightbox(p.proxy_url, p.is_video, p.discord_url);
-        });
 
         const footer = document.createElement('div');
         footer.className = 'card-footer';
@@ -193,9 +189,23 @@ function renderGallery() {
         card.appendChild(footer);
         
         card.addEventListener('click', (e) => {
-            // Only open lightbox if we didn't click the buttons or indicator
-            if (e.target.closest('.discord-jump-btn') || e.target.closest('.copy-link-btn') || e.target.closest('.check-indicator')) return;
-            toggleSelect(p.id, card);
+            // Priority 1: Do nothing if action buttons were clicked (they have stopPropagation)
+            if (e.target.closest('.discord-jump-btn') || e.target.closest('.copy-link-btn')) return;
+
+            // Priority 2: If we click the checkmark or footer, Always Toggle Select
+            if (e.target.closest('.check-indicator') || e.target.closest('.card-footer')) {
+                toggleSelect(p.id, card);
+                return;
+            }
+
+            // Priority 3: For the media/image part:
+            // If already in selection mode (at least 1 item is selected), clicking media also selects.
+            // If NOT in selection mode, clicking media opens Lightbox.
+            if (selectedIds.size > 0) {
+                toggleSelect(p.id, card);
+            } else {
+                openLightbox(p.proxy_url, p.is_video, p.discord_url);
+            }
         });
         gallery.appendChild(card);
     });
