@@ -13,6 +13,7 @@ from storage import log_photo_to_db, remove_photo_from_db, remove_all_photos_for
 import db_manager
 import tunnel_manager
 from media_processor import process_media_eagerly
+import hashlib
 import asyncio
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -167,7 +168,6 @@ class UploadSelect(discord.ui.Select):
             att = self.attachments_map[int(att_id_str)]
             # We bypass the filter intentionally as requested, but we still deduplicate
             try:
-                import hashlib
                 image_bytes = await att.read()
                 file_hash = hashlib.sha256(image_bytes).hexdigest()
                 
@@ -400,7 +400,6 @@ async def handle_manual_add(interaction: discord.Interaction, message: discord.M
         
         att = message.attachments[0]
         try:
-            import hashlib
             image_bytes = await att.read()
             file_hash = hashlib.sha256(image_bytes).hexdigest()
             
@@ -574,7 +573,6 @@ async def backfill_legacy_links(interaction: discord.Interaction):
                 try:
                     # Async read and hash - matches the logic in UploadSelect
                     data = await attachment.read()
-                    import hashlib
                     file_hash = hashlib.sha256(data).hexdigest()
                     
                     if file_hash in hash_to_old_id:

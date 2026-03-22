@@ -9,6 +9,8 @@ A beautifully optimized, high-performance photo and video archive system for you
 - **OpenCV Video Posters**: Robust frame-extraction for videos (fallback from locally missing FFmpeg) ensuring consistent gallery previews.
 - **Lazy Loading & Deferred Media**: Zero video data is downloaded until you hover or click, avoiding browser connection limits and making the UI extremely snappy.
 - **Chunked File Streaming**: Zero-memory bulk downloads safely process massive HD video zip exports without crashing the lightweight server.
+- **Infinite Scroll Pagination**: Incremental data fetching (40 items per batch) ensures the dashboard remains lightning-fast even as the vault grows to thousands of records.
+- **Connection Pooling**: Uses a persistent `requests.Session` to minimize latency when proxying media and refreshing Discord CDN links.
 
 ### 🛡️ Smart Archiving & Moderation
 - **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.

@@ -3,6 +3,10 @@ let selectedIds = new Set();
 let isRangeMode = false;
 let isAdmin = false;
 let videoObserver;
+let currentPage = 0;
+const photosPerPage = 40;
+let isLoading = false;
+let hasMore = true;
 
 document.addEventListener("DOMContentLoaded", async () => {
     // Glassmorphism Spotlight Engine
@@ -21,9 +25,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     initVideoObserver();
     await checkAuth();
-    await loadPhotos();
+    await loadPhotos(true); // Initial load (reset)
     await loadAuthors();
     setupEventListeners();
+    setupInfiniteScroll();
 });
 
 function initVideoObserver() {
@@ -70,13 +75,34 @@ function updateAdminUI() {
     }
 }
 
-async function loadPhotos() {
+async function loadPhotos(reset = false) {
+    if (isLoading || (!hasMore && !reset)) return;
+    
+    isLoading = true;
+    if (reset) {
+        currentPage = 0;
+        allPhotos = [];
+        hasMore = true;
+        const gallery = document.getElementById('gallery');
+        if (gallery) gallery.innerHTML = '<div class="loading-spinner"></div>';
+    }
+
     try {
-        const req = await fetch('/api/photos');
-        allPhotos = await req.json();
+        const offset = currentPage * photosPerPage;
+        const req = await fetch(`/api/photos?limit=${photosPerPage}&offset=${offset}`);
+        const newPhotos = await req.json();
+        
+        if (newPhotos.length < photosPerPage) {
+            hasMore = false;
+        }
+        
+        allPhotos = [...allPhotos, ...newPhotos];
         renderGallery();
+        currentPage++;
     } catch (e) {
         console.error("Failed to fetch photos", e);
+    } finally {
+        isLoading = false;
     }
 }
 
@@ -108,6 +134,9 @@ function toLocalDateString(date) {
 function renderGallery() {
     const gallery = document.getElementById('gallery');
     gallery.innerHTML = '';
+    
+    // For infinite scroll, we re-render the full allPhotos list (filtered).
+    // This ensures client-side filters continue to work correctly as more data arrives.
     
     const authorFilter = document.getElementById('author-filter').value;
     const typeFilter = document.getElementById('type-filter').value;
@@ -309,15 +338,15 @@ function setupEventListeners() {
         });
     }
 
-    document.getElementById('author-filter').addEventListener('change', renderGallery);
-    document.getElementById('type-filter').addEventListener('change', renderGallery);
-    document.getElementById('start-date').addEventListener('change', renderGallery);
-    document.getElementById('end-date').addEventListener('change', renderGallery);
+    document.getElementById('author-filter').addEventListener('change', () => loadPhotos(true));
+    document.getElementById('type-filter').addEventListener('change', () => loadPhotos(true));
+    document.getElementById('start-date').addEventListener('change', () => loadPhotos(true));
+    document.getElementById('end-date').addEventListener('change', () => loadPhotos(true));
     
     document.getElementById('range-toggle').addEventListener('click', () => {
         isRangeMode = !isRangeMode;
         document.getElementById('end-date-group').classList.toggle('active', isRangeMode);
-        renderGallery();
+        loadPhotos(true);
     });
 
     document.getElementById('clear-filters').addEventListener('click', () => {
@@ -325,7 +354,7 @@ function setupEventListeners() {
         document.getElementById('type-filter').value = 'all';
         document.getElementById('start-date').value = '';
         document.getElementById('end-date').value = '';
-        renderGallery();
+        loadPhotos(true);
     });
 
     document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
@@ -340,8 +369,15 @@ function setupEventListeners() {
         } else {
             visibleCards.forEach(c => selectedIds.add(c.dataset.id));
         }
-        renderGallery();
         updateActionButtons();
+        // We don't call renderGallery here to avoid flickering, just update the classes
+        visibleCards.forEach(c => {
+            if (selectedIds.has(c.dataset.id)) {
+                c.classList.add('selected');
+            } else {
+                c.classList.remove('selected');
+            }
+        });
     });
 
     // Auth Listeners
@@ -375,39 +411,6 @@ function setupEventListeners() {
         updateAdminUI();
     });
 
-    // Management Listeners
-    document.getElementById('add-photo-btn').addEventListener('click', () => {
-        document.getElementById('add-photo-modal').classList.add('active');
-    });
-    document.getElementById('close-add').addEventListener('click', () => {
-        document.getElementById('add-photo-modal').classList.remove('active');
-    });
-    document.getElementById('submit-add').addEventListener('click', async () => {
-        const userId = document.getElementById('add-user-id').value;
-        const url = document.getElementById('add-url').value;
-        const fileName = document.getElementById('add-filename').value;
-        
-        if (!userId || !url) return alert("User ID and URL are required");
-
-        const resp = await fetch('/api/admin/add', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ user_id: userId, url, file_name: fileName, timestamp: new Date().toISOString() })
-        });
-        const data = await resp.json();
-        if (data.success) {
-            document.getElementById('add-photo-modal').classList.remove('active');
-            // Clear inputs
-            document.getElementById('add-user-id').value = '';
-            document.getElementById('add-url').value = '';
-            document.getElementById('add-filename').value = '';
-            await loadPhotos();
-            await loadAuthors();
-        } else {
-            alert("Failed to add photo: " + data.error);
-        }
-    });
-
     document.getElementById('delete-selected-btn').addEventListener('click', async () => {
         const count = selectedIds.size;
         if (count === 0) return;
@@ -422,7 +425,7 @@ function setupEventListeners() {
         if (data.success) {
             selectedIds.clear();
             updateActionButtons();
-            await loadPhotos();
+            await loadPhotos(true);
             await loadAuthors();
         } else {
             alert("Failed to delete items.");
@@ -526,5 +529,13 @@ function closeLightbox() {
     // Stop video and audio abruptly to prevent phantom sound
     const video = lightbox.querySelector('video');
     if (video) video.pause();
+}
+
+function setupInfiniteScroll() {
+    window.addEventListener('scroll', () => {
+        if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
+            loadPhotos();
+        }
+    });
 }
 

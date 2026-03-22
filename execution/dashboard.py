@@ -35,6 +35,10 @@ if not SECRET_KEY:
 app.secret_key = SECRET_KEY
 CORS(app)
 
+# Use a persistent session to keep the connection alive (efficiency)
+http_session = requests.Session()
+http_session.headers.update({"Authorization": f"Bot {DISCORD_TOKEN}"})
+
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.execute('PRAGMA journal_mode=WAL;')
@@ -77,9 +81,17 @@ def auth_status():
 
 @app.route("/api/photos")
 def api_get_photos():
+    limit = request.args.get("limit", 100, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    
     conn = get_db()
     # Explicitly ORDER BY original discord timestamp instead of archival order (ROWID)
-    photos = conn.execute("SELECT message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp, ROWID as id FROM photos ORDER BY timestamp DESC").fetchall()
+    photos = conn.execute("""
+        SELECT message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp, ROWID as id 
+        FROM photos 
+        ORDER BY timestamp DESC 
+        LIMIT ? OFFSET ?
+    """, (limit, offset)).fetchall()
     
     guild_row = conn.execute("SELECT value FROM config WHERE key='guild_id'").fetchone()
     guild_id = guild_row["value"] if guild_row else None
@@ -146,28 +158,31 @@ def get_fresh_discord_attachment(channel_id, composite_id):
     attach_id = parts[1] if len(parts) > 1 else None
 
     url = f"https://discord.com/api/v10/channels/{channel_id}/messages/{msg_id}"
-    headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
     
     # 2. Fetch with automatic Retry/Backoff if Discord rate-limits us (429 Too Many Requests)
     for _ in range(3):
-        r = requests.get(url, headers=headers)
-        if r.status_code == 200:
-            data = r.json()
-            attachments = data.get("attachments", [])
-            for att in attachments:
-                if not attach_id or str(att["id"]) == attach_id:
-                    fresh_url = att["url"]
-                    # Cache for 23 hours (82800 seconds)
-                    _url_cache[composite_id] = (fresh_url, now + 82800)
-                    return fresh_url
-            return None
-        elif r.status_code == 429:
-            retry_after = r.json().get("retry_after", 1.0)
-            print(f"[ERROR] Discord API 429 Rate Limit hit. Backing off for {retry_after}s...")
-            time.sleep(retry_after)
-        else:
-            print(f"[ERROR] Discord API returned {r.status_code} for {msg_id}: {r.text}")
-            break
+        try:
+            r = http_session.get(url, timeout=5.0)
+            if r.status_code == 200:
+                data = r.json()
+                attachments = data.get("attachments", [])
+                for att in attachments:
+                    if not attach_id or str(att["id"]) == attach_id:
+                        fresh_url = att["url"]
+                        # Cache for 23 hours (82800 seconds)
+                        _url_cache[composite_id] = (fresh_url, now + 82800)
+                        return fresh_url
+                return None
+            elif r.status_code == 429:
+                retry_after = r.json().get("retry_after", 1.0)
+                print(f"[ERROR] Discord API 429 Rate Limit hit. Backing off for {retry_after}s...")
+                time.sleep(retry_after)
+            else:
+                print(f"[ERROR] Discord API returned {r.status_code} for {msg_id}: {r.text}")
+                break
+        except Exception as e:
+            print(f"[ERROR] Connection failed for {msg_id}: {e}")
+            time.sleep(1)
     
     return None
             
@@ -208,7 +223,7 @@ def ensure_local_cache(message_id, photo):
                 return None
                 
         try:
-            r = requests.get(fresh_url, stream=True)
+            r = http_session.get(fresh_url, stream=True, timeout=10.0)
             if r.status_code == 200:
                 with open(cache_path, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
@@ -407,7 +422,7 @@ def backfill_user_names():
         # 1. Try the Guild Members endpoint first to get the server nickname
         if guild_id:
             try:
-                r = requests.get(f"https://discord.com/api/v10/guilds/{guild_id}/members/{uid}", headers=headers)
+                r = http_session.get(f"https://discord.com/api/v10/guilds/{guild_id}/members/{uid}", timeout=5.0)
                 if r.status_code == 200:
                     data = r.json()
                     # nick = server nickname, user.global_name = display name, user.username = handle
@@ -418,7 +433,7 @@ def backfill_user_names():
         # 2. Fallback to global user endpoint if guild lookup didn't yield a name
         if not name:
             try:
-                r = requests.get(f"https://discord.com/api/v10/users/{uid}", headers=headers)
+                r = http_session.get(f"https://discord.com/api/v10/users/{uid}", timeout=5.0)
                 if r.status_code == 200:
                     data = r.json()
                     name = data.get("global_name") or data.get("username")
@@ -572,12 +587,15 @@ def delete_photos():
         conn.execute("DELETE FROM photos WHERE message_id=?", (msg_id,))
         deleted_count += 1
         
-        # Find hash to blacklist
+        # Find hash to clear from caches
         if cloud_url:
             hash_row = conn.execute("SELECT file_hash FROM uploaded_cache WHERE cloud_url=?", (cloud_url,)).fetchone()
             if hash_row:
                 file_hash = hash_row["file_hash"]
-                conn.execute("INSERT OR REPLACE INTO meme_cache (file_hash) VALUES (?)", (file_hash,))
+                # 1. Remove from uploaded_cache (allows re-upload)
+                conn.execute("DELETE FROM uploaded_cache WHERE file_hash=?", (file_hash,))
+                # 2. Remove from meme_cache (removes 'ignored' status)
+                conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (file_hash,))
         
         # Delete from disk
         cache_path = os.path.join(CACHE_DIR, msg_id)
