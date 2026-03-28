@@ -438,6 +438,87 @@ function setupEventListeners() {
         const btn = document.getElementById('download-bulk');
         const span = btn.querySelector('span');
         const originalText = span.textContent;
+        
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (isMobile) {
+            const downloadItems = allPhotos.filter(p => selectedIds.has(p.id));
+            const batchSize = 15;
+            
+            if (downloadItems.length > batchSize) {
+                alert(`You have selected ${downloadItems.length} items. To prevent your device from crashing, we will save them to your Photos app in batches of ${batchSize}. The native Share Sheet will appear multiple times.\n\nPlease tap "Save X Images" on each sheet.`);
+            }
+
+            btn.disabled = true;
+            
+            const fetchAsFile = async (url, filename) => {
+                const res = await fetch(url);
+                const blob = await res.blob();
+                return new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+            };
+
+            let useShareApi = !!navigator.share && !!navigator.canShare;
+            let shareFailed = false;
+
+            for (let i = 0; i < downloadItems.length; i += batchSize) {
+                const batch = downloadItems.slice(i, i + batchSize);
+                const currentBatchNum = Math.floor(i / batchSize) + 1;
+                const totalBatches = Math.ceil(downloadItems.length / batchSize);
+                
+                if (totalBatches > 1) {
+                    span.textContent = `Batch ${currentBatchNum}/${totalBatches}... ⏳`;
+                } else {
+                    span.textContent = "Saving... ⏳";
+                }
+                
+                let batchShared = false;
+                if (useShareApi && !shareFailed) {
+                    try {
+                        const files = await Promise.all(batch.map(item => fetchAsFile(item.proxy_url, item.file_name || `photo_${item.id}.jpg`)));
+                        if (navigator.canShare({ files: files })) {
+                            await navigator.share({
+                                files: files
+                            });
+                            batchShared = true;
+                            // Delay slightly after share sheet to ensure OS cleans up
+                            await new Promise(r => setTimeout(r, 500));
+                        } else {
+                            shareFailed = true;
+                        }
+                    } catch (e) {
+                        console.error('Share failed', e);
+                        if (e.name !== 'AbortError') {
+                            shareFailed = true;
+                        } else {
+                            // User cancelled share sheet, stop further batches
+                            break;
+                        }
+                    }
+                }
+
+                if (!batchShared && (!useShareApi || shareFailed)) {
+                    if (totalBatches > 1) {
+                        span.textContent = `Saving ${i+1}-${Math.min(i+batchSize, downloadItems.length)}... ⏳`;
+                    }
+                    for (let j = 0; j < batch.length; j++) {
+                        const item = batch[j];
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = item.proxy_url;
+                        a.download = item.file_name || `photo_${item.id}`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        await new Promise(resolve => setTimeout(resolve, 30));
+                    }
+                }
+            }
+            
+            span.textContent = originalText;
+            btn.disabled = false;
+            return;
+        }
+        
         span.textContent = "Zipping... ⏳";
         btn.disabled = true;
 

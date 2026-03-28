@@ -11,6 +11,8 @@ A beautifully optimized, high-performance photo and video archive system for you
 - **Chunked File Streaming**: Zero-memory bulk downloads safely process massive HD video zip exports without crashing the lightweight server.
 - **Infinite Scroll Pagination**: Incremental data fetching (40 items per batch) ensures the dashboard remains lightning-fast even as the vault grows to thousands of records.
 - **Connection Pooling**: Uses a persistent `requests.Session` to minimize latency when proxying media and refreshing Discord CDN links.
+- **Platform-Specific Bulk Downloads**: Desktop users get a high-speed ZIP archive, while mobile users (iOS/Android) utilize the native **Web Share API** for direct "Save to Photos" gallery integration.
+- **Mobile Memory Safeguards**: Implements a 15-item batching strategy and intelligent JS `File` objects to prevent browser crashes when downloading large quantities of high-res media on mobile devices.
 
 ### 🛡️ Smart Archiving & Moderation
 - **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.
@@ -76,7 +78,6 @@ sh run_local_public.sh
 ## 🚀 Future Roadmap (10X improvements)
 Planned features to keep the vault at the cutting edge:
 - **⚡ Real-Time Live Feed**: Instant gallery updates via SSE.
-- **👁️ Perceptual Deduplication**: Visual fingerprinting (phash) to detect similar media.
+- **Eye-Catching Transitions**: Premium CSS animations for batch-processing and gallery filtering.
 - **📅 Automated "Events"**: Smart grouping of photos by time proximity.
-- **📱 PWA Support**: Dedicated native-feel app on mobile.
 - **🧠 AI Semantic Search**: Find photos by content (e.g., "dog," "beach").

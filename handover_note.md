@@ -14,7 +14,8 @@ Optimize the vault for professional-grade concurrency, ensure 100% lifecycle syn
    - **Reaction-Based ID Consistency**: Standardized the use of Snowflake-based composite IDs (`message_id-attachment_id`) across both Discord Reactions and Web Approvals to ensure deletion sync works globally.
 
 3. **User Experience & Accessibility**:
-   - **Mobile Selection Optimization**: Improved touch accessibility with persistent, high-contrast selection circles and a dense 2-column grid layout.
+   - **Mobile "Save to Photos" Integration**: Replaced standard file downloads on iOS/Android with the native **Web Share API**. This allows users to save media directly to their native Gallery/Photos app instead of the hidden "Files" folder.
+   - **Batch-Processing UI**: Implemented a 15-item batching constraint for mobile sharing to prevent OOM (Out Of Memory) crashes. Added dynamic UI notifications (`Batch 1/3...`) and browser alerts to guide users through multi-share operations.
    - **Global Name Sync**: Updated attribution logic to prioritize server-specific nicknames and automatically propagate name changes across historical records.
 
 ## Critical Setup Information
