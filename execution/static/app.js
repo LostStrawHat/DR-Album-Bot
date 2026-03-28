@@ -440,77 +440,72 @@ function setupEventListeners() {
         const originalText = span.textContent;
         
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        
+        const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
         if (isMobile) {
-            const downloadItems = allPhotos.filter(p => selectedIds.has(p.id));
-            const batchSize = 15;
-            
-            if (downloadItems.length > batchSize) {
-                alert(`You have selected ${downloadItems.length} items. To prevent your device from crashing, we will save them to your Photos app in batches of ${batchSize}. The native Share Sheet will appear multiple times.\n\nPlease tap "Save X Images" on each sheet.`);
-            }
+            const count = selectedIds.size;
+            const mode = count > 20 ? 'zip' : 'direct';
+            const os = isIOS ? 'ios' : 'android';
+
+            const confirmed = await showDownloadGuide(mode, os, count);
+            if (!confirmed) return;
 
             btn.disabled = true;
-            
-            const fetchAsFile = async (url, filename) => {
-                const res = await fetch(url);
-                const blob = await res.blob();
-                return new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-            };
 
-            let useShareApi = !!navigator.share && !!navigator.canShare;
-            let shareFailed = false;
+            if (mode === 'direct') {
+                span.textContent = "Saving... ⏳";
+                const downloadItems = allPhotos.filter(p => selectedIds.has(p.id));
+                const fetchAsFile = async (url, filename) => {
+                    const res = await fetch(url);
+                    const blob = await res.blob();
+                    return new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+                };
 
-            for (let i = 0; i < downloadItems.length; i += batchSize) {
-                const batch = downloadItems.slice(i, i + batchSize);
-                const currentBatchNum = Math.floor(i / batchSize) + 1;
-                const totalBatches = Math.ceil(downloadItems.length / batchSize);
-                
-                if (totalBatches > 1) {
-                    span.textContent = `Batch ${currentBatchNum}/${totalBatches}... ⏳`;
-                } else {
-                    span.textContent = "Saving... ⏳";
-                }
-                
-                let batchShared = false;
-                if (useShareApi && !shareFailed) {
-                    try {
-                        const files = await Promise.all(batch.map(item => fetchAsFile(item.proxy_url, item.file_name || `photo_${item.id}.jpg`)));
-                        if (navigator.canShare({ files: files })) {
-                            await navigator.share({
-                                files: files
-                            });
-                            batchShared = true;
-                            // Delay slightly after share sheet to ensure OS cleans up
+                try {
+                    const files = await Promise.all(downloadItems.map(item => fetchAsFile(item.proxy_url, item.file_name || `photo_${item.id}.jpg`)));
+                    if (navigator.share && navigator.canShare && navigator.canShare({ files })) {
+                        await navigator.share({ files });
+                    } else {
+                        // Fallback to sequential <a> downloads
+                        for (const item of downloadItems) {
+                            const a = document.createElement('a');
+                            a.href = item.proxy_url;
+                            a.download = item.file_name || `photo_${item.id}`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
                             await new Promise(r => setTimeout(r, 500));
-                        } else {
-                            shareFailed = true;
-                        }
-                    } catch (e) {
-                        console.error('Share failed', e);
-                        if (e.name !== 'AbortError') {
-                            shareFailed = true;
-                        } else {
-                            // User cancelled share sheet, stop further batches
-                            break;
                         }
                     }
+                } catch (e) {
+                    console.error('Mobile download failed', e);
                 }
-
-                if (!batchShared && (!useShareApi || shareFailed)) {
-                    if (totalBatches > 1) {
-                        span.textContent = `Saving ${i+1}-${Math.min(i+batchSize, downloadItems.length)}... ⏳`;
-                    }
-                    for (let j = 0; j < batch.length; j++) {
-                        const item = batch[j];
+            } else {
+                span.textContent = "Zipping... ⏳";
+                try {
+                    const req = await fetch('/api/download_bulk', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message_ids: Array.from(selectedIds) })
+                    });
+                    
+                    if (req.ok) {
+                        const blob = await req.blob();
+                        const url = window.URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.style.display = 'none';
-                        a.href = item.proxy_url;
-                        a.download = item.file_name || `photo_${item.id}`;
+                        a.href = url;
+                        a.download = 'Vault_Archive.zip';
                         document.body.appendChild(a);
                         a.click();
-                        document.body.removeChild(a);
-                        await new Promise(resolve => setTimeout(resolve, 30));
+                        window.URL.revokeObjectURL(url);
+                        showToast("ZIP download started! Check your Files app.");
+                    } else {
+                        alert("Failed to create ZIP.");
                     }
+                } catch (e) {
+                    console.error(e);
+                    alert("Error downloading!");
                 }
             }
             
@@ -549,6 +544,103 @@ function setupEventListeners() {
 
         span.textContent = originalText;
         btn.disabled = false;
+    });
+}
+const SVG_ICONS = {
+    shareIOS: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>`,
+    shareAndroid: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>`,
+    files: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
+    download: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`
+};
+
+async function showDownloadGuide(mode, os, count) {
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.className = 'guide-modal';
+        
+        let steps = '';
+        if (mode === 'direct') {
+            if (os === 'ios') {
+                steps = `
+                    <div class="step-card">
+                        <div class="step-number">1</div>
+                        <div class="step-icon">${SVG_ICONS.shareIOS}</div>
+                        <div class="step-info"><h4>Tap Share</h4><p>The system menu will appear.</p></div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">2</div>
+                        <div class="step-icon">${SVG_ICONS.download}</div>
+                        <div class="step-info"><h4>Scroll Down</h4><p>Find the <span class="highlight-text">Save ${count} Images</span> action.</p></div>
+                    </div>`;
+            } else {
+                steps = `
+                    <div class="step-card">
+                        <div class="step-number">1</div>
+                        <div class="step-icon">${SVG_ICONS.shareAndroid}</div>
+                        <div class="step-info"><h4>Tap Share</h4><p>Choose "Photos" or "Save to device".</p></div>
+                    </div>`;
+            }
+        } else {
+            // ZIP Mode
+            const zipName = "Vault_Archive.zip";
+            if (os === 'ios') {
+                steps = `
+                    <div class="step-card">
+                        <div class="step-number">1</div>
+                        <div class="step-icon">${SVG_ICONS.files}</div>
+                        <div class="step-info"><h4>Open Files App</h4><p>Find <span class="highlight-text">${zipName}</span> in Downloads.</p></div>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-number">2</div>
+                        <div class="step-icon">${SVG_ICONS.download}</div>
+                        <div class="step-info"><h4>Extract & Save</h4><p>Tap ZIP to unzip, then "Select All" -> "Save to Photos".</p></div>
+                    </div>`;
+            } else {
+                steps = `
+                    <div class="step-card">
+                        <div class="step-number">1</div>
+                        <div class="step-icon">${SVG_ICONS.files}</div>
+                        <div class="step-info"><h4>Extract ZIP</h4><p>Open Downloads and tap "Extract" on the ZIP file.</p></div>
+                    </div>`;
+            }
+        }
+
+        modal.innerHTML = `
+            <div class="guide-content">
+                <div class="guide-header">
+                    <h3>${mode === 'direct' ? 'Save to Photos' : 'Large Download'}</h3>
+                    <p>${mode === 'direct' ? `Saving ${count} photos directly to your gallery.` : `We've created a ZIP for your ${count} items to save bandwidth.`}</p>
+                </div>
+                <div class="diagram-container">
+                    ${steps}
+                </div>
+                <div class="guide-actions">
+                    <button class="ready-btn">Ready to Download</button>
+                    <button class="nav-link" style="background:transparent; border:none; margin-top:0.5rem;" onclick="this.closest('.guide-modal').remove();">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+        setTimeout(() => modal.classList.add('active'), 10);
+
+        modal.querySelector('.ready-btn').onclick = () => {
+            modal.classList.remove('active');
+            setTimeout(() => {
+                modal.remove();
+                resolve(true);
+            }, 400);
+        };
+
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                modal.classList.remove('active');
+                setTimeout(() => {
+                    modal.remove();
+                    resolve(false);
+                }, 400);
+            }
+        };
     });
 }
 

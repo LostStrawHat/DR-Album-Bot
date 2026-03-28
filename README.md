@@ -11,8 +11,9 @@ A beautifully optimized, high-performance photo and video archive system for you
 - **Chunked File Streaming**: Zero-memory bulk downloads safely process massive HD video zip exports without crashing the lightweight server.
 - **Infinite Scroll Pagination**: Incremental data fetching (40 items per batch) ensures the dashboard remains lightning-fast even as the vault grows to thousands of records.
 - **Connection Pooling**: Uses a persistent `requests.Session` to minimize latency when proxying media and refreshing Discord CDN links.
-- **Platform-Specific Bulk Downloads**: Desktop users get a high-speed ZIP archive, while mobile users (iOS/Android) utilize the native **Web Share API** for direct "Save to Photos" gallery integration.
-- **Mobile Memory Safeguards**: Implements a 15-item batching strategy and intelligent JS `File` objects to prevent browser crashes when downloading large quantities of high-res media on mobile devices.
+- **Platform-Specific Bulk Downloads**: Desktop users get a high-speed ZIP archive, while mobile users (iOS/Android) utilize a hybrid strategy: **Web Share API** (for selections ≤ 20) and server-side **ZIP Archives** (for selections > 20).
+- **Instructional Guidance HUD**: Features a beautiful glassmorphism modal with iOS/Android diagrams to guide mobile users through the native "Save to Photos" process step-by-step.
+- **Mobile Memory Safeguards**: Smart threshold logic (≤ 20 items) and lazy-loaded `File` objects prevent browser crashes when downloading large quantities of high-res media on smartphones.
 
 ### 🛡️ Smart Archiving & Moderation
 - **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.
