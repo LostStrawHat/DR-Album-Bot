@@ -6,45 +6,55 @@ WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
 
 def get_db():
-    return sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
 
 def log_photo_to_db(message_id: int, channel_id: int, user_id: int, user_name: str, original_url: str, file_name: str, sent_date: str = ""):
     conn = get_db()
-    
-    # 1. Log the new photo using the latest identity
-    conn.execute('''
-        INSERT OR REPLACE INTO photos (message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (str(message_id), str(channel_id), str(user_id), user_name, original_url, file_name, sent_date))
-    
-    # 2. Propagate this fresh nickname/global_name to all historical records for this user
-    # This ensures that if they change their Discord name, the dashboard updates their entire history!
-    conn.execute("UPDATE photos SET user_name = ? WHERE user_id = ?", (user_name, str(user_id)))
-    
-    conn.commit()
-    conn.close()
+    try:
+        # 1. Log the new photo using the latest identity
+        conn.execute('''
+            INSERT OR REPLACE INTO photos (message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (str(message_id), str(channel_id), str(user_id), user_name, original_url, file_name, sent_date))
+        
+        # 2. Propagate this fresh nickname/global_name to all historical records for this user
+        # This ensures that if they change their Discord name, the dashboard updates their entire history!
+        conn.execute("UPDATE photos SET user_name = ? WHERE user_id = ?", (user_name, str(user_id)))
+        
+        conn.commit()
+    finally:
+        conn.close()
 
 def remove_photo_from_db(message_id: int):
     conn = get_db()
-    cursor = conn.execute("DELETE FROM photos WHERE message_id=?", (str(message_id),))
-    count = cursor.rowcount
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.execute("DELETE FROM photos WHERE message_id=?", (str(message_id),))
+        count = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
     return count
 
 def remove_all_photos_for_message(message_id: int):
     conn = get_db()
-    # Remove all attachments that share the same message ID prefix
-    cursor = conn.execute("DELETE FROM photos WHERE message_id LIKE ? OR message_id = ?", (f"{message_id}-%", str(message_id)))
-    count = cursor.rowcount
-    conn.commit()
-    conn.close()
+    try:
+        # Remove all attachments that share the same message ID prefix
+        cursor = conn.execute("DELETE FROM photos WHERE message_id LIKE ? OR message_id = ?", (f"{message_id}-%", str(message_id)))
+        count = cursor.rowcount
+        conn.commit()
+    finally:
+        conn.close()
     return count
 
 def update_legacy_metadata(old_id: str, new_id: str, channel_id: str):
     """Replaces a synthetic 'web-' ID with real Discord message/channel metadata."""
     conn = get_db()
-    # Update the ID and the channel
-    conn.execute("UPDATE photos SET message_id = ?, channel_id = ? WHERE message_id = ?", (str(new_id), str(channel_id), str(old_id)))
-    conn.commit()
-    conn.close()
+    try:
+        # Update the ID and the channel
+        conn.execute("UPDATE photos SET message_id = ?, channel_id = ? WHERE message_id = ?", (str(new_id), str(channel_id), str(old_id)))
+        conn.commit()
+    finally:
+        conn.close()

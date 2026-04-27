@@ -1,7 +1,10 @@
 import sqlite3
 import os
 import io
+import time
 import zipfile
+import mimetypes
+from contextlib import contextmanager
 from flask import Flask, jsonify, request, send_file, render_template, redirect, session
 from flask_cors import CORS
 from dotenv import load_dotenv
@@ -9,6 +12,11 @@ import requests
 from functools import wraps
 import re
 import subprocess
+from PIL import Image
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 DB_PATH = os.path.join(WORKSPACE_ROOT, 'photos.sqlite3')
@@ -44,6 +52,15 @@ def get_db():
     conn.execute('PRAGMA journal_mode=WAL;')
     conn.row_factory = sqlite3.Row
     return conn
+
+@contextmanager
+def db_conn():
+    """Context manager that guarantees the connection is closed even on exceptions."""
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 def admin_required(f):
     @wraps(f)
@@ -84,18 +101,17 @@ def api_get_photos():
     limit = request.args.get("limit", 100, type=int)
     offset = request.args.get("offset", 0, type=int)
     
-    conn = get_db()
-    # Explicitly ORDER BY original discord timestamp instead of archival order (ROWID)
-    photos = conn.execute("""
-        SELECT message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp, ROWID as id 
-        FROM photos 
-        ORDER BY timestamp DESC 
-        LIMIT ? OFFSET ?
-    """, (limit, offset)).fetchall()
-    
-    guild_row = conn.execute("SELECT value FROM config WHERE key='guild_id'").fetchone()
-    guild_id = guild_row["value"] if guild_row else None
-    conn.close()
+    with db_conn() as conn:
+        # Explicitly ORDER BY original discord timestamp instead of archival order (ROWID)
+        photos = conn.execute("""
+            SELECT message_id, channel_id, user_id, user_name, cloud_url, file_name, timestamp, ROWID as id 
+            FROM photos 
+            ORDER BY timestamp DESC 
+            LIMIT ? OFFSET ?
+        """, (limit, offset)).fetchall()
+        
+        guild_row = conn.execute("SELECT value FROM config WHERE key='guild_id'").fetchone()
+        guild_id = guild_row["value"] if guild_row else None
     
     res = []
     for p in photos:
@@ -125,20 +141,18 @@ def api_get_photos():
 
 @app.route("/api/authors")
 def api_get_authors():
-    conn = get_db()
-    authors = conn.execute("SELECT DISTINCT user_id, user_name FROM photos").fetchall()
-    conn.close()
+    with db_conn() as conn:
+        authors = conn.execute("SELECT DISTINCT user_id, user_name FROM photos").fetchall()
     return jsonify([{"id": a["user_id"], "name": a["user_name"] or f"User {a['user_id']}"} for a in authors])
 
 @app.route("/api/dates")
 def api_get_dates():
-    conn = get_db()
-    dates = conn.execute("SELECT DISTINCT SUBSTR(timestamp, 1, 10) as d FROM photos WHERE timestamp != '' ORDER BY d DESC").fetchall()
-    conn.close()
+    with db_conn() as conn:
+        dates = conn.execute("SELECT DISTINCT SUBSTR(timestamp, 1, 10) as d FROM photos WHERE timestamp != '' ORDER BY d DESC").fetchall()
     return jsonify([row["d"] for row in dates])
 
-import time
 
+_URL_CACHE_MAX = 500
 _url_cache = {}
 
 def get_fresh_discord_attachment(channel_id, composite_id):
@@ -150,6 +164,13 @@ def get_fresh_discord_attachment(channel_id, composite_id):
         cached_url, expiry = _url_cache[composite_id]
         if now < expiry:
             return cached_url
+
+    # Evict stale entries when cache grows too large
+    if len(_url_cache) >= _URL_CACHE_MAX:
+        # Remove the oldest 50% by expiry time
+        sorted_entries = sorted(_url_cache.items(), key=lambda x: x[1][1])
+        for key, _ in sorted_entries[:_URL_CACHE_MAX // 2]:
+            del _url_cache[key]
 
     # The composite_id is `{message.id}-{attachment.id}`
     # Fallback to pure message_id if migrating from older single-attachment schema
@@ -185,23 +206,13 @@ def get_fresh_discord_attachment(channel_id, composite_id):
             time.sleep(1)
     
     return None
-            
-    return None
-
-import mimetypes
-import io
-from PIL import Image
-try:
-    import cv2
-except ImportError:
-    cv2 = None
 
 def get_db_info(message_id):
-    conn = get_db()
-    # The frontend passes `{message_id}-{attachment_id}` since Discord allows multiple attachments per message.
-    # We stored the same composite ID in the `message_id` column during log_photo_to_db.
-    row = conn.execute("SELECT file_name, channel_id, cloud_url FROM photos WHERE message_id=?", (str(message_id),)).fetchone()
-    conn.close()
+    """Fetch media metadata from DB. Returns sqlite3.Row or None."""
+    with db_conn() as conn:
+        # The frontend passes `{message_id}-{attachment_id}` since Discord allows multiple attachments per message.
+        # We stored the same composite ID in the `message_id` column during log_photo_to_db.
+        row = conn.execute("SELECT file_name, channel_id, cloud_url FROM photos WHERE message_id=?", (str(message_id),)).fetchone()
     return row
 
 def ensure_local_cache(message_id, photo):
@@ -371,28 +382,37 @@ def bulk_download():
     ids = req.get("message_ids", [])
     if not ids:
         return "No IDs", 400
+    
+    # Convert all IDs to strings to handle mixed int/string inputs from the frontend
+    ids = [str(i) for i in ids]
         
-    conn = get_db()
-    placeholders = ",".join("?" * len(ids))
-    photos = conn.execute(f"SELECT message_id, channel_id, cloud_url, file_name FROM photos WHERE message_id IN ({placeholders})", ids).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        placeholders = ",".join("?" * len(ids))
+        photos = conn.execute(f"SELECT message_id, channel_id, cloud_url, file_name FROM photos WHERE message_id IN ({placeholders})", ids).fetchall()
     
-    export_dir = os.path.join(CACHE_DIR, 'exports')
-    os.makedirs(export_dir, exist_ok=True)
-    import time
-    zip_path = os.path.join(export_dir, f'export_{int(time.time())}.zip')
-    
-    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+    # Build ZIP entirely in memory — no disk writes, no cleanup required
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        seen_names = {}
         for p in photos:
             try:
                 cache_path = ensure_local_cache(p["message_id"], {"channel_id": p["channel_id"], "cloud_url": p["cloud_url"]})
                 if cache_path and os.path.exists(cache_path):
-                    zf.write(cache_path, p["file_name"])
+                    # Deduplicate filenames within the ZIP to prevent overwrites
+                    name = p["file_name"]
+                    if name in seen_names:
+                        seen_names[name] += 1
+                        base, ext = os.path.splitext(name)
+                        name = f"{base}_{seen_names[p['file_name']]}{ext}"
+                    else:
+                        seen_names[name] = 0
+                    zf.write(cache_path, name)
             except Exception as e:
                 print(f"Failed skipping bulk zip entry: {e}")
 
+    zip_buffer.seek(0)
     return send_file(
-        zip_path,
+        zip_buffer,
         mimetype='application/zip',
         as_attachment=True,
         download_name='discord_memory_vault.zip'
@@ -402,61 +422,57 @@ def backfill_user_names():
     """One-time migration: fetch real Discord server nicknames for any records missing user_name."""
     if not DISCORD_TOKEN:
         return
-    conn = get_db()
-    rows = conn.execute("SELECT DISTINCT user_id FROM photos WHERE user_name IS NULL OR user_name = ''").fetchall()
-    if not rows:
-        conn.close()
-        return
-    
-    # Get guild_id from config (set by the bot on startup)
-    guild_row = conn.execute("SELECT value FROM config WHERE key='guild_id'").fetchone()
-    guild_id = guild_row["value"] if guild_row else None
-    
-    print(f"[Backfill] Found {len(rows)} user(s) missing names. Fetching from Discord API...")
-    headers = {"Authorization": f"Bot {DISCORD_TOKEN}"}
-    
-    for row in rows:
-        uid = row["user_id"]
-        name = None
+    with db_conn() as conn:
+        rows = conn.execute("SELECT DISTINCT user_id FROM photos WHERE user_name IS NULL OR user_name = ''").fetchall()
+        if not rows:
+            return
         
-        # 1. Try the Guild Members endpoint first to get the server nickname
-        if guild_id:
-            try:
-                r = http_session.get(f"https://discord.com/api/v10/guilds/{guild_id}/members/{uid}", timeout=5.0)
-                if r.status_code == 200:
-                    data = r.json()
-                    # nick = server nickname, user.global_name = display name, user.username = handle
-                    name = data.get("nick") or data.get("user", {}).get("global_name") or data.get("user", {}).get("username")
-            except Exception as e:
-                print(f"[Backfill] Guild member lookup failed for {uid}: {e}")
+        # Get guild_id from config (set by the bot on startup)
+        guild_row = conn.execute("SELECT value FROM config WHERE key='guild_id'").fetchone()
+        guild_id = guild_row["value"] if guild_row else None
         
-        # 2. Fallback to global user endpoint if guild lookup didn't yield a name
-        if not name:
-            try:
-                r = http_session.get(f"https://discord.com/api/v10/users/{uid}", timeout=5.0)
-                if r.status_code == 200:
-                    data = r.json()
-                    name = data.get("global_name") or data.get("username")
-            except Exception as e:
-                print(f"[Backfill] User lookup failed for {uid}: {e}")
+        print(f"[Backfill] Found {len(rows)} user(s) missing names. Fetching from Discord API...")
         
-        if name:
-            conn.execute("UPDATE photos SET user_name = ? WHERE user_id = ? AND (user_name IS NULL OR user_name = '')", (name, uid))
-            print(f"[Backfill] {uid} -> {name}")
-        else:
-            print(f"[Backfill] Could not resolve name for {uid}")
+        for row in rows:
+            uid = row["user_id"]
+            name = None
             
-    conn.commit()
-    conn.close()
+            # 1. Try the Guild Members endpoint first to get the server nickname
+            if guild_id:
+                try:
+                    r = http_session.get(f"https://discord.com/api/v10/guilds/{guild_id}/members/{uid}", timeout=5.0)
+                    if r.status_code == 200:
+                        data = r.json()
+                        # nick = server nickname, user.global_name = display name, user.username = handle
+                        name = data.get("nick") or data.get("user", {}).get("global_name") or data.get("user", {}).get("username")
+                except Exception as e:
+                    print(f"[Backfill] Guild member lookup failed for {uid}: {e}")
+            
+            # 2. Fallback to global user endpoint if guild lookup didn't yield a name
+            if not name:
+                try:
+                    r = http_session.get(f"https://discord.com/api/v10/users/{uid}", timeout=5.0)
+                    if r.status_code == 200:
+                        data = r.json()
+                        name = data.get("global_name") or data.get("username")
+                except Exception as e:
+                    print(f"[Backfill] User lookup failed for {uid}: {e}")
+            
+            if name:
+                conn.execute("UPDATE photos SET user_name = ? WHERE user_id = ? AND (user_name IS NULL OR user_name = '')", (name, uid))
+                print(f"[Backfill] {uid} -> {name}")
+            else:
+                print(f"[Backfill] Could not resolve name for {uid}")
+                
+        conn.commit()
     print("[Backfill] Done!")
 
 @app.route("/api/review/photos")
 def api_get_review_photos():
     """Returns all photos currently in the review queue (meme_cache)."""
-    conn = get_db()
-    # Ensure we only show items that have a cloud_url stored
-    photos = conn.execute("SELECT file_hash, date_added, cloud_url, file_name, user_name, timestamp FROM meme_cache WHERE cloud_url IS NOT NULL ORDER BY date_added DESC").fetchall()
-    conn.close()
+    with db_conn() as conn:
+        # Ensure we only show items that have a cloud_url stored
+        photos = conn.execute("SELECT file_hash, date_added, cloud_url, file_name, user_name, timestamp FROM meme_cache WHERE cloud_url IS NOT NULL ORDER BY date_added DESC").fetchall()
     
     res = []
     for p in photos:
@@ -473,12 +489,11 @@ def api_get_review_photos():
 
 @app.route("/api/review/proxy/<file_hash>")
 def proxy_review_media(file_hash):
-    conn = get_db()
-    try:
-        row = conn.execute("SELECT cloud_url, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
-    except sqlite3.OperationalError:
-        row = conn.execute("SELECT cloud_url FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
-    conn.close()
+    with db_conn() as conn:
+        try:
+            row = conn.execute("SELECT cloud_url, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
+        except sqlite3.OperationalError:
+            row = conn.execute("SELECT cloud_url FROM meme_cache WHERE file_hash=?", (file_hash,)).fetchone()
 
     if not row:
         return "Not found", 404
@@ -507,47 +522,46 @@ def api_approve_photos():
     if not hashes:
         return jsonify({"status": "error", "message": "No photos selected"}), 400
         
-    conn = get_db()
     processed = 0
     placeholders = ",".join("?" * len(hashes))
     
-    try:
-        rows = conn.execute(f"SELECT file_hash, cloud_url, file_name, user_id, user_name, timestamp, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash IN ({placeholders})", hashes).fetchall()
-    except sqlite3.OperationalError:
-        rows = conn.execute(f"SELECT file_hash, cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash IN ({placeholders})", hashes).fetchall()
+    with db_conn() as conn:
+        try:
+            rows = conn.execute(f"SELECT file_hash, cloud_url, file_name, user_id, user_name, timestamp, channel_id, original_msg_id, attachment_id FROM meme_cache WHERE file_hash IN ({placeholders})", hashes).fetchall()
+        except sqlite3.OperationalError:
+            rows = conn.execute(f"SELECT file_hash, cloud_url, file_name, user_id, user_name, timestamp FROM meme_cache WHERE file_hash IN ({placeholders})", hashes).fetchall()
 
-    photos_to_insert = []
-    uploaded_cache_to_insert = []
-    hashes_to_delete = []
+        photos_to_insert = []
+        uploaded_cache_to_insert = []
+        hashes_to_delete = []
 
-    for r in rows:
-        row = dict(r)
-        h = row["file_hash"]
-        orig_msg_id = row.get("original_msg_id")
-        attach_id = row.get("attachment_id")
-        
-        if orig_msg_id and attach_id:
-            final_msg_id = f"{orig_msg_id}-{attach_id}"
-        else:
-            final_msg_id = f"web-{h[:12]}"
-
-        channel_id = row.get("channel_id") or "web-review"
-        photos_to_insert.append((final_msg_id, channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
-        uploaded_cache_to_insert.append((h, row["cloud_url"], row["timestamp"]))
-        hashes_to_delete.append((h,))
-
-    if photos_to_insert:
-        conn.executemany('''
-            INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', photos_to_insert)
-        
-        conn.executemany("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)", uploaded_cache_to_insert)
-        conn.executemany("DELETE FROM meme_cache WHERE file_hash=?", hashes_to_delete)
-        processed = len(photos_to_insert)
+        for r in rows:
+            row = dict(r)
+            h = row["file_hash"]
+            orig_msg_id = row.get("original_msg_id")
+            attach_id = row.get("attachment_id")
             
-    conn.commit()
-    conn.close()
+            if orig_msg_id and attach_id:
+                final_msg_id = f"{orig_msg_id}-{attach_id}"
+            else:
+                final_msg_id = f"web-{h[:12]}"
+
+            channel_id = row.get("channel_id") or "web-review"
+            photos_to_insert.append((final_msg_id, channel_id, row["user_id"], row["user_name"], row["timestamp"], row["cloud_url"], row["file_name"]))
+            uploaded_cache_to_insert.append((h, row["cloud_url"], row["timestamp"]))
+            hashes_to_delete.append((h,))
+
+        if photos_to_insert:
+            conn.executemany('''
+                INSERT OR IGNORE INTO photos (message_id, channel_id, user_id, user_name, timestamp, cloud_url, file_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', photos_to_insert)
+            
+            conn.executemany("INSERT OR IGNORE INTO uploaded_cache (file_hash, cloud_url, date_added) VALUES (?, ?, ?)", uploaded_cache_to_insert)
+            conn.executemany("DELETE FROM meme_cache WHERE file_hash=?", hashes_to_delete)
+            processed = len(photos_to_insert)
+                
+        conn.commit()
     return jsonify({"status": "success", "processed": processed})
 
 @app.route("/api/review/blacklist", methods=["POST"])
@@ -558,12 +572,10 @@ def api_blacklist_photos():
     if not hashes:
         return jsonify({"status": "error", "message": "No photos selected"}), 400
         
-    conn = get_db()
-    hashes_tuple = [(h,) for h in hashes]
-    conn.executemany("UPDATE meme_cache SET cloud_url=NULL, file_name=NULL, user_id=NULL, user_name=NULL, timestamp=NULL WHERE file_hash=?", hashes_tuple)
-            
-    conn.commit()
-    conn.close()
+    with db_conn() as conn:
+        hashes_tuple = [(h,) for h in hashes]
+        conn.executemany("UPDATE meme_cache SET cloud_url=NULL, file_name=NULL, user_id=NULL, user_name=NULL, timestamp=NULL WHERE file_hash=?", hashes_tuple)
+        conn.commit()
     return jsonify({"status": "success", "processed": len(hashes)})
 
 @app.route("/api/delete", methods=["POST"])
@@ -573,40 +585,45 @@ def delete_photos():
     ids = data.get("ids", [])
     if not ids:
         return jsonify({"success": False, "error": "No IDs provided"}), 400
-        
-    conn = get_db()
-    placeholders = ",".join("?" * len(ids))
-    rows = conn.execute(f"SELECT cloud_url, message_id FROM photos WHERE message_id IN ({placeholders})", ids).fetchall()
     
-    deleted_count = 0
-    for row in rows:
-        cloud_url = row["cloud_url"]
-        msg_id = row["message_id"]
+    # Ensure all IDs are strings (frontend may send ints)
+    ids = [str(i) for i in ids]
         
-        # Delete from DB
-        conn.execute("DELETE FROM photos WHERE message_id=?", (msg_id,))
-        deleted_count += 1
+    with db_conn() as conn:
+        placeholders = ",".join("?" * len(ids))
+        rows = conn.execute(f"SELECT cloud_url, message_id FROM photos WHERE message_id IN ({placeholders})", ids).fetchall()
         
-        # Find hash to clear from caches
-        if cloud_url:
-            hash_row = conn.execute("SELECT file_hash FROM uploaded_cache WHERE cloud_url=?", (cloud_url,)).fetchone()
-            if hash_row:
-                file_hash = hash_row["file_hash"]
-                # 1. Remove from uploaded_cache (allows re-upload)
-                conn.execute("DELETE FROM uploaded_cache WHERE file_hash=?", (file_hash,))
-                # 2. Remove from meme_cache (removes 'ignored' status)
-                conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (file_hash,))
-        
-        # Delete from disk
-        cache_path = os.path.join(CACHE_DIR, msg_id)
-        if os.path.exists(cache_path):
-            os.remove(cache_path)
-        thumb_path = os.path.join(THUMB_DIR, f"{msg_id}.jpg")
-        if os.path.exists(thumb_path):
-            os.remove(thumb_path)
-                
-    conn.commit()
-    conn.close()
+        deleted_count = 0
+        for row in rows:
+            cloud_url = row["cloud_url"]
+            msg_id = row["message_id"]
+            
+            # Delete from DB
+            conn.execute("DELETE FROM photos WHERE message_id=?", (msg_id,))
+            deleted_count += 1
+            
+            # Find hash to clear from caches
+            if cloud_url:
+                hash_row = conn.execute("SELECT file_hash FROM uploaded_cache WHERE cloud_url=?", (cloud_url,)).fetchone()
+                if hash_row:
+                    file_hash = hash_row["file_hash"]
+                    # 1. Remove from uploaded_cache (allows re-upload)
+                    conn.execute("DELETE FROM uploaded_cache WHERE file_hash=?", (file_hash,))
+                    # 2. Remove from meme_cache (removes 'ignored' status)
+                    conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (file_hash,))
+            
+            # Also purge from in-memory URL cache to avoid stale hits
+            _url_cache.pop(msg_id, None)
+            
+            # Delete from disk cache
+            cache_path = os.path.join(CACHE_DIR, msg_id)
+            if os.path.exists(cache_path):
+                os.remove(cache_path)
+            thumb_path = os.path.join(THUMB_DIR, f"{msg_id}.jpg")
+            if os.path.exists(thumb_path):
+                os.remove(thumb_path)
+                    
+        conn.commit()
     return jsonify({"success": True, "deleted": deleted_count})
 
 if __name__ == "__main__":

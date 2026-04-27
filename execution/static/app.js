@@ -248,7 +248,7 @@ function renderGallery() {
 
             // Priority 2: If we click the checkmark or footer, Always Toggle Select
             if (e.target.closest('.check-indicator') || e.target.closest('.card-footer')) {
-                toggleSelect(p.id, card);
+                toggleSelect(String(p.id), card);
                 return;
             }
 
@@ -256,7 +256,7 @@ function renderGallery() {
             // If already in selection mode (at least 1 item is selected), clicking media also selects.
             // If NOT in selection mode, clicking media opens Lightbox.
             if (selectedIds.size > 0) {
-                toggleSelect(p.id, card);
+                toggleSelect(String(p.id), card);
             } else {
                 openLightbox(p.proxy_url, p.is_video, p.discord_url);
             }
@@ -292,11 +292,12 @@ function showToast(message) {
 }
 
 function toggleSelect(id, cardElement) {
-    if (selectedIds.has(id)) {
-        selectedIds.delete(id);
+    const stringId = String(id);
+    if (selectedIds.has(stringId)) {
+        selectedIds.delete(stringId);
         cardElement.classList.remove('selected');
     } else {
-        selectedIds.add(id);
+        selectedIds.add(stringId);
         cardElement.classList.add('selected');
     }
     updateActionButtons();
@@ -338,15 +339,15 @@ function setupEventListeners() {
         });
     }
 
-    document.getElementById('author-filter').addEventListener('change', () => loadPhotos(true));
-    document.getElementById('type-filter').addEventListener('change', () => loadPhotos(true));
-    document.getElementById('start-date').addEventListener('change', () => loadPhotos(true));
-    document.getElementById('end-date').addEventListener('change', () => loadPhotos(true));
+    document.getElementById('author-filter').addEventListener('change', () => renderGallery());
+    document.getElementById('type-filter').addEventListener('change', () => renderGallery());
+    document.getElementById('start-date').addEventListener('change', () => renderGallery());
+    document.getElementById('end-date').addEventListener('change', () => renderGallery());
     
     document.getElementById('range-toggle').addEventListener('click', () => {
         isRangeMode = !isRangeMode;
         document.getElementById('end-date-group').classList.toggle('active', isRangeMode);
-        loadPhotos(true);
+        renderGallery();
     });
 
     document.getElementById('clear-filters').addEventListener('click', () => {
@@ -354,7 +355,7 @@ function setupEventListeners() {
         document.getElementById('type-filter').value = 'all';
         document.getElementById('start-date').value = '';
         document.getElementById('end-date').value = '';
-        loadPhotos(true);
+        renderGallery();
     });
 
     document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
@@ -367,7 +368,7 @@ function setupEventListeners() {
         if (selectedIds.size === visibleCards.length && visibleCards.length > 0) {
             selectedIds.clear();
         } else {
-            visibleCards.forEach(c => selectedIds.add(c.dataset.id));
+            visibleCards.forEach(c => selectedIds.add(String(c.dataset.id)));
         }
         updateActionButtons();
         // We don't call renderGallery here to avoid flickering, just update the classes
@@ -419,7 +420,7 @@ function setupEventListeners() {
         const resp = await fetch('/api/delete', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ids: Array.from(selectedIds) })
+            body: JSON.stringify({ ids: Array.from(selectedIds).map(String) })
         });
         const data = await resp.json();
         if (data.success) {
@@ -444,73 +445,51 @@ function setupEventListeners() {
 
         if (isMobile) {
             const count = selectedIds.size;
-            const mode = count > 20 ? 'zip' : 'direct';
+            // Android share sheet doesn't support "Save to Gallery" well for multiple files.
+            // We force ZIP for Android to ensure a reliable "Save" path via Extraction.
+            const mode = (isIOS && count <= 20) ? 'direct' : 'zip';
             const os = isIOS ? 'ios' : 'android';
 
-            const confirmed = await showDownloadGuide(mode, os, count);
-            if (!confirmed) return;
-
-            btn.disabled = true;
-
-            if (mode === 'direct') {
-                span.textContent = "Saving... ⏳";
-                const downloadItems = allPhotos.filter(p => selectedIds.has(p.id));
-                const fetchAsFile = async (url, filename) => {
-                    const res = await fetch(url);
-                    const blob = await res.blob();
-                    return new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-                };
-
-                try {
-                    const files = await Promise.all(downloadItems.map(item => fetchAsFile(item.proxy_url, item.file_name || `photo_${item.id}.jpg`)));
-                    if (navigator.share && navigator.canShare && navigator.canShare({ files })) {
-                        await navigator.share({ files });
-                    } else {
-                        // Fallback to sequential <a> downloads
-                        for (const item of downloadItems) {
-                            const a = document.createElement('a');
-                            a.href = item.proxy_url;
-                            a.download = item.file_name || `photo_${item.id}`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            await new Promise(r => setTimeout(r, 500));
-                        }
-                    }
-                } catch (e) {
-                    console.error('Mobile download failed', e);
-                }
-            } else {
-                span.textContent = "Zipping... ⏳";
-                try {
+            // Function to fetch files/zip in the background
+            const prepareFiles = async () => {
+                const idsArray = Array.from(selectedIds).map(String);
+                if (mode === 'direct') {
+                    const downloadItems = allPhotos.filter(p => selectedIds.has(String(p.id)));
+                    const fetchAsFile = async (url, filename) => {
+                        const res = await fetch(url);
+                        const blob = await res.blob();
+                        return new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+                    };
+                    return await Promise.all(downloadItems.map(item => fetchAsFile(item.proxy_url, item.file_name || `photo_${item.id}.jpg`)));
+                } else {
                     const req = await fetch('/api/download_bulk', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message_ids: Array.from(selectedIds) })
+                        body: JSON.stringify({ message_ids: idsArray })
                     });
-                    
-                    if (req.ok) {
-                        const blob = await req.blob();
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.style.display = 'none';
-                        a.href = url;
-                        a.download = 'Vault_Archive.zip';
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                        showToast("ZIP download started! Check your Files app.");
-                    } else {
-                        alert("Failed to create ZIP.");
-                    }
-                } catch (e) {
-                    console.error(e);
-                    alert("Error downloading!");
+                    if (req.ok) return await req.blob();
+                    throw new Error("ZIP creation failed");
                 }
+            };
+
+            const result = await showDownloadGuide(mode, os, count, prepareFiles);
+            if (!result) return; // User cancelled
+
+            if (mode === 'zip') {
+                const url = window.URL.createObjectURL(result);
+                const a = document.createElement('a');
+                a.style.display = 'none'; a.href = url; a.download = 'Vault_Archive.zip';
+                document.body.appendChild(a); a.click();
+                setTimeout(() => window.URL.revokeObjectURL(url), 100);
+                showToast("ZIP download started!");
             }
             
-            span.textContent = originalText;
-            btn.disabled = false;
+            // Clear selection after sharing/downloading
+            selectedIds.clear();
+            updateActionButtons();
+            const visibleCards = document.querySelectorAll('.media-card');
+            visibleCards.forEach(c => c.classList.remove('selected'));
+            
             return;
         }
         
@@ -518,10 +497,11 @@ function setupEventListeners() {
         btn.disabled = true;
 
         try {
+            const idsArray = Array.from(selectedIds).map(String);
             const req = await fetch('/api/download_bulk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message_ids: Array.from(selectedIds) })
+                body: JSON.stringify({ message_ids: idsArray })
             });
             
             if (req.ok) {
@@ -533,7 +513,16 @@ function setupEventListeners() {
                 a.download = 'Vault_Archive.zip';
                 document.body.appendChild(a);
                 a.click();
-                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                // Delay revocation to ensure the browser has time to start the download
+                setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+                showToast("ZIP download started!");
+                
+                // Clear selection
+                selectedIds.clear();
+                updateActionButtons();
+                const visibleCards = document.querySelectorAll('.media-card');
+                visibleCards.forEach(c => c.classList.remove('selected'));
             } else {
                 alert("Failed to create ZIP.");
             }
@@ -553,70 +542,35 @@ const SVG_ICONS = {
     download: `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`
 };
 
-async function showDownloadGuide(mode, os, count) {
+async function showDownloadGuide(mode, os, count, getFiles) {
     return new Promise((resolve) => {
         const modal = document.createElement('div');
         modal.className = 'guide-modal';
         
         let steps = '';
         if (mode === 'direct') {
-            if (os === 'ios') {
-                steps = `
-                    <div class="step-card">
-                        <div class="step-number">1</div>
-                        <div class="step-icon">${SVG_ICONS.shareIOS}</div>
-                        <div class="step-info"><h4>Tap Share</h4><p>The system menu will appear.</p></div>
-                    </div>
-                    <div class="step-card">
-                        <div class="step-number">2</div>
-                        <div class="step-icon">${SVG_ICONS.download}</div>
-                        <div class="step-info"><h4>Scroll Down</h4><p>Find the <span class="highlight-text">Save ${count} Images</span> action.</p></div>
-                    </div>`;
-            } else {
-                steps = `
-                    <div class="step-card">
-                        <div class="step-number">1</div>
-                        <div class="step-icon">${SVG_ICONS.shareAndroid}</div>
-                        <div class="step-info"><h4>Tap Share</h4><p>Choose "Photos" or "Save to device".</p></div>
-                    </div>`;
-            }
+            steps = os === 'ios' ? 
+                `<div class="step-card"><div class="step-number">1</div><div class="step-icon">${SVG_ICONS.shareIOS}</div><div class="step-info"><h4>Tap Share</h4><p>The system menu will appear.</p></div></div>
+                 <div class="step-card"><div class="step-number">2</div><div class="step-icon">${SVG_ICONS.download}</div><div class="step-info"><h4>Scroll Down</h4><p>Find the <span class="highlight-text">Save ${count} Images</span> action.</p></div></div>` :
+                `<div class="step-card"><div class="step-number">1</div><div class="step-icon">${SVG_ICONS.shareAndroid}</div><div class="step-info"><h4>Tap Share</h4><p>Choose "Photos" or "Save to device".</p></div></div>`;
         } else {
-            // ZIP Mode
             const zipName = "Vault_Archive.zip";
-            if (os === 'ios') {
-                steps = `
-                    <div class="step-card">
-                        <div class="step-number">1</div>
-                        <div class="step-icon">${SVG_ICONS.files}</div>
-                        <div class="step-info"><h4>Open Files App</h4><p>Find <span class="highlight-text">${zipName}</span> in Downloads.</p></div>
-                    </div>
-                    <div class="step-card">
-                        <div class="step-number">2</div>
-                        <div class="step-icon">${SVG_ICONS.download}</div>
-                        <div class="step-info"><h4>Extract & Save</h4><p>Tap ZIP to unzip, then "Select All" -> "Save to Photos".</p></div>
-                    </div>`;
-            } else {
-                steps = `
-                    <div class="step-card">
-                        <div class="step-number">1</div>
-                        <div class="step-icon">${SVG_ICONS.files}</div>
-                        <div class="step-info"><h4>Extract ZIP</h4><p>Open Downloads and tap "Extract" on the ZIP file.</p></div>
-                    </div>`;
-            }
+            steps = os === 'ios' ?
+                `<div class="step-card"><div class="step-number">1</div><div class="step-icon">${SVG_ICONS.files}</div><div class="step-info"><h4>Open Files</h4><p>Find <span class="highlight-text">${zipName}</span> in Downloads.</p></div></div>
+                 <div class="step-card"><div class="step-number">2</div><div class="step-icon">${SVG_ICONS.download}</div><div class="step-info"><h4>Extract & Save</h4><p>Tap ZIP, "Select All" -> "Save to Photos".</p></div></div>` :
+                `<div class="step-card"><div class="step-number">1</div><div class="step-icon">${SVG_ICONS.files}</div><div class="step-info"><h4>Extract ZIP</h4><p>Open Downloads and tap "Extract" on the ZIP file.</p></div></div>`;
         }
 
         modal.innerHTML = `
             <div class="guide-content">
                 <div class="guide-header">
                     <h3>${mode === 'direct' ? 'Save to Photos' : 'Large Download'}</h3>
-                    <p>${mode === 'direct' ? `Saving ${count} photos directly to your gallery.` : `We've created a ZIP for your ${count} items to save bandwidth.`}</p>
+                    <p>${mode === 'direct' ? `Saving ${count} photos directly to your gallery.` : `Creating a ZIP for your ${count} items.`}</p>
                 </div>
-                <div class="diagram-container">
-                    ${steps}
-                </div>
+                <div class="diagram-container">${steps}</div>
                 <div class="guide-actions">
-                    <button class="ready-btn">Ready to Download</button>
-                    <button class="nav-link" style="background:transparent; border:none; margin-top:0.5rem;" onclick="this.closest('.guide-modal').remove();">Cancel</button>
+                    <button class="ready-btn loading">Preparing Files...</button>
+                    <button class="nav-link" style="background:transparent; border:none; margin-top:0.3rem;" onclick="this.closest('.guide-modal').remove();">Cancel</button>
                 </div>
             </div>
         `;
@@ -624,21 +578,44 @@ async function showDownloadGuide(mode, os, count) {
         document.body.appendChild(modal);
         setTimeout(() => modal.classList.add('active'), 10);
 
-        modal.querySelector('.ready-btn').onclick = () => {
-            modal.classList.remove('active');
-            setTimeout(() => {
-                modal.remove();
-                resolve(true);
-            }, 400);
-        };
+        const readyBtn = modal.querySelector('.ready-btn');
+
+        // Start pre-fetching files or ZIP in the background
+        getFiles().then(async (filesResult) => {
+            readyBtn.classList.remove('loading');
+            readyBtn.textContent = mode === 'direct' ? 'Save to Photos' : 'Download ZIP';
+            
+            readyBtn.onclick = async () => {
+                if (mode === 'direct') {
+                    try {
+                        // CRITICAL: Call navigator.share SYNCHRONOUSLY to the click even
+                        if (navigator.share && navigator.canShare && navigator.canShare({ files: filesResult })) {
+                            await navigator.share({ files: filesResult });
+                        } else {
+                            // High-speed fallback: sequential anchor-click downloads
+                            const blobUrls = filesResult.map(f => URL.createObjectURL(f));
+                            for (const url of blobUrls) {
+                                const a = document.createElement('a'); a.href = url; a.download = 'photo';
+                                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                                await new Promise(r => setTimeout(r, 400));
+                            }
+                            // Revoke all blob URLs after downloads have started
+                            setTimeout(() => blobUrls.forEach(u => URL.revokeObjectURL(u)), 60000);
+                        }
+                    } catch (e) {
+                        console.error('Share failed', e);
+                    }
+                }
+                
+                modal.classList.remove('active');
+                setTimeout(() => { modal.remove(); resolve(filesResult); }, 400);
+            };
+        });
 
         modal.onclick = (e) => {
             if (e.target === modal) {
                 modal.classList.remove('active');
-                setTimeout(() => {
-                    modal.remove();
-                    resolve(false);
-                }, 400);
+                setTimeout(() => { modal.remove(); resolve(null); }, 400);
             }
         };
     });
@@ -699,9 +676,13 @@ function closeLightbox() {
     const lightbox = document.getElementById('lightbox');
     lightbox.classList.remove('active');
     
-    // Stop video and audio abruptly to prevent phantom sound
+    // Stop video, clear its src, and call load() to free the buffer/connection
     const video = lightbox.querySelector('video');
-    if (video) video.pause();
+    if (video) {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+    }
 }
 
 function setupInfiniteScroll() {
