@@ -95,16 +95,11 @@ async def process_attachment(attachment) -> tuple[str, str]:
     file_hash = hashlib.sha256(image_bytes).hexdigest()
     
     if is_known_meme(file_hash):
-        # Check if it has metadata for the web dashboard
-        conn = get_db()
-        try:
-            cursor = conn.execute("SELECT cloud_url FROM meme_cache WHERE file_hash=?", (file_hash,))
-            row = cursor.fetchone()
-        finally:
-            conn.close()
-        if row and row[0]: # Has cloud_url, definitely a meme
-            return ("DISCARD", file_hash)
-        # If it's a legacy entry (no cloud_url), we fall through to the size-check logic below
+        # Any hash in meme_cache is either:
+        # 1. Already pending review (metadata present)
+        # 2. Permanently blacklisted (metadata stripped via dashboard)
+        # We discard in both cases to ensure blacklisting is permanent.
+        return ("DISCARD", file_hash)
         
     if is_known_upload(file_hash):
         return ("DUPLICATE", file_hash)
