@@ -14,39 +14,57 @@ PYTHON_PATH = os.path.join(WORKSPACE_ROOT, 'venv', 'bin', 'python')
 
 def is_tunnel_running():
     """Checks if the cloudflared process is actually running."""
-    if not os.path.exists(PID_FILE):
-        return False
+    if os.path.exists(PID_FILE):
+        try:
+            with open(PID_FILE, 'r') as f:
+                pid = int(f.read().strip())
+            
+            if psutil.pid_exists(pid):
+                process = psutil.Process(pid)
+                if 'cloudflared' in process.name().lower():
+                    return True
+        except (ValueError, psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
     
-    try:
-        with open(PID_FILE, 'r') as f:
-            pid = int(f.read().strip())
-        
-        if psutil.pid_exists(pid):
-            process = psutil.Process(pid)
-            if 'cloudflared' in process.name().lower():
+    # Fallback: scan all processes to see if cloudflared is running
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            name = proc.info['name'] or ''
+            cmdline = proc.info['cmdline'] or []
+            if 'cloudflared' in name.lower() or any('cloudflared' in part.lower() for part in cmdline):
+                with open(PID_FILE, 'w') as f:
+                    f.write(str(proc.info['pid']))
                 return True
-    except (ValueError, psutil.NoSuchProcess, psutil.AccessDenied):
-        pass
-    
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+            
     return False
 
 def is_dashboard_running():
     """Checks if the dashboard process is actually running using psutil."""
-    if not os.path.exists(DASHBOARD_PID_FILE):
-        return False
-    
-    try:
-        with open(DASHBOARD_PID_FILE, 'r') as f:
-            pid = int(f.read().strip())
-        
-        if psutil.pid_exists(pid):
-            process = psutil.Process(pid)
-            # Check if this PID is indeed a python process running dashboard.py
-            cmd_line = " ".join(process.cmdline())
-            if 'python' in cmd_line.lower() and 'dashboard.py' in cmd_line.lower():
+    if os.path.exists(DASHBOARD_PID_FILE):
+        try:
+            with open(DASHBOARD_PID_FILE, 'r') as f:
+                pid = int(f.read().strip())
+            
+            if psutil.pid_exists(pid):
+                process = psutil.Process(pid)
+                cmd_line = " ".join(process.cmdline())
+                if 'python' in cmd_line.lower() and 'dashboard.py' in cmd_line.lower():
+                    return True
+        except (ValueError, psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+            
+    # Fallback: scan all processes to see if dashboard.py is running
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmdline = proc.info['cmdline']
+            if cmdline and any('dashboard.py' in part for part in cmdline):
+                with open(DASHBOARD_PID_FILE, 'w') as f:
+                    f.write(str(proc.info['pid']))
                 return True
-    except (ValueError, psutil.NoSuchProcess, psutil.AccessDenied):
-        pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
     
     return False
 

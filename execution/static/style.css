@@ -964,3 +964,17 @@ input[type="date"]:hover::-webkit-calendar-picker-indicator {
         font-size: 1.25rem;
     }
 }
+.ready-btn.loading {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+    cursor: wait;
+    box-shadow: none;
+    pointer-events: none;
+    animation: pulse 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.6; }
+    100% { opacity: 1; }
+}

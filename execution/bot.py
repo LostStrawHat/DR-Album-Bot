@@ -2,7 +2,7 @@ import os
 import discord
 import requests
 import hashlib
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
 import sqlite3
@@ -213,6 +213,9 @@ class PhotoBotClient(commands.Bot):
         except Exception as e:
             print(f"Warning: Failed to auto-start dashboard: {e}")
             
+        # Start background check for tunnel
+        self.keep_tunnel_alive.start()
+
         # Register right-click Context Menu
         self.tree.add_command(app_commands.ContextMenu(
             name='Add to Vault',
@@ -229,6 +232,21 @@ class PhotoBotClient(commands.Bot):
 
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
+
+    @tasks.loop(minutes=5)
+    async def keep_tunnel_alive(self):
+        """Keep the cloudflared tunnel active and healthy."""
+        try:
+            url = await asyncio.to_thread(tunnel_manager.ensure_tunnel_active)
+            if url:
+                set_config("album_url", url)
+                print(f"[TUNNEL ALIVE] Public URL: {url}")
+        except Exception as e:
+            print(f"[TUNNEL ALIVE] Error checking tunnel: {e}")
+
+    @keep_tunnel_alive.before_loop
+    async def before_keep_tunnel_alive(self):
+        await self.wait_until_ready()
 
 bot = PhotoBotClient()
 

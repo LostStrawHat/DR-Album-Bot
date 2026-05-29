@@ -11,9 +11,9 @@ A beautifully optimized, high-performance photo and video archive system for you
 - **Chunked File Streaming**: Zero-memory bulk downloads safely process massive HD video zip exports without crashing the lightweight server.
 - **Infinite Scroll Pagination**: Incremental data fetching (40 items per batch) ensures the dashboard remains lightning-fast even as the vault grows to thousands of records.
 - **Connection Pooling**: Uses a persistent `requests.Session` to minimize latency when proxying media and refreshing Discord CDN links.
-- **Platform-Specific Bulk Downloads**: Desktop users get a high-speed ZIP archive, while mobile users (iOS/Android) utilize a hybrid strategy: **Web Share API** (for selections ≤ 20) and server-side **ZIP Archives** (for selections > 20).
-- **Instructional Guidance HUD**: Features a beautiful glassmorphism modal with iOS/Android diagrams to guide mobile users through the native "Save to Photos" process step-by-step.
-- **Mobile Memory Safeguards**: Smart threshold logic (≤ 20 items) and lazy-loaded `File` objects prevent browser crashes when downloading large quantities of high-res media on smartphones.
+- **Platform-Specific Bulk Downloads**: Desktop users get a high-speed ZIP archive, while mobile users (iOS/Android) utilize a hybrid strategy: **Web Share API** (for iOS selections ≤ 20) and server-side **ZIP Archives** (for Android and large iOS batches) to ensure consistent "Save to Gallery" support.
+- **Instructional Guidance HUD**: Features a beautiful glassmorphism modal with iOS/Android diagrams to guide mobile users through the native "Save to Photos" and "ZIP Extraction" processes step-by-step.
+- **Selection Safety & Cleanup**: Implemented String-based ID standardization to prevent type-mismatch bugs (fixing partial selection downloads) and automatic selection clearing after a successful download or share action.
 
 ### 🛡️ Smart Archiving & Moderation
 - **Hybrid Moderation**: Approve or discard items directly in Discord using ✅/❌ reactions, or use the high-volume Web Review Queue.
