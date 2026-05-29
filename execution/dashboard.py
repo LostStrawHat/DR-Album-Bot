@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import datetime
 import io
 import time
 import zipfile
@@ -609,8 +610,9 @@ def delete_photos():
                     file_hash = hash_row["file_hash"]
                     # 1. Remove from uploaded_cache (allows re-upload)
                     conn.execute("DELETE FROM uploaded_cache WHERE file_hash=?", (file_hash,))
-                    # 2. Remove from meme_cache (removes 'ignored' status)
-                    conn.execute("DELETE FROM meme_cache WHERE file_hash=?", (file_hash,))
+                    # 2. Add to meme_cache to permanently blacklist
+                    conn.execute("INSERT OR REPLACE INTO meme_cache (file_hash, date_added) VALUES (?, ?)", 
+                                 (file_hash, datetime.datetime.now().isoformat()))
             
             # Also purge from in-memory URL cache to avoid stale hits
             _url_cache.pop(msg_id, None)
